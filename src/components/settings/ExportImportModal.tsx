@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
 import { 
   X, 
@@ -17,7 +18,9 @@ import {
   CheckCircle2, 
   Table, 
   Unlink, 
-  Link as LinkIcon 
+  Link as LinkIcon,
+  Lock,
+  Cloud
 } from 'lucide-react';
 import { 
   GoogleSheetsConfig, 
@@ -43,6 +46,8 @@ interface ExportImportModalProps {
   onResetToDemo: () => void;
   onClearLibrary: () => void;
   onSheetsConfigChange?: (config: GoogleSheetsConfig | null) => void;
+  currentUser?: User | null;
+  onOpenAuthModal?: () => void;
 }
 
 type TabType = 'sheets' | 'import' | 'backup';
@@ -56,6 +61,8 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
   onResetToDemo,
   onClearLibrary,
   onSheetsConfigChange,
+  currentUser,
+  onOpenAuthModal,
 }) => {
   const [activeTab, setActiveTab] = useState<TabType>('sheets');
 
@@ -427,6 +434,11 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
   };
 
   const handleApplyImport = (mode: 'merge' | 'replace') => {
+    if (!currentUser) {
+      onClose();
+      onOpenAuthModal?.();
+      return;
+    }
     if (importPreview) {
       onImportBooks(importPreview.books, mode);
       setImportPreview(null);
@@ -862,6 +874,25 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
           {/* TAB 2: IMPORT (CSV & GOOGLE SHEETS) */}
           {activeTab === 'import' && (
             <div className="space-y-6">
+              {!currentUser && (
+                <div className="bg-[#FFF8E7] border border-[#E8DFCF] rounded-lg p-3.5 flex items-center justify-between gap-3 text-xs text-[#5C4828]">
+                  <div className="flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-[#8A5A36] shrink-0" />
+                    <span>Импорт книг доступен после авторизации в Google Облаке, чтобы книги надежно сохранились.</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onOpenAuthModal?.();
+                    }}
+                    className="inline-flex items-center gap-1 font-semibold text-[#8A5A36] hover:text-[#5E3023] underline shrink-0 whitespace-nowrap"
+                  >
+                    <Cloud className="w-3.5 h-3.5" />
+                    <span>Войти</span>
+                  </button>
+                </div>
+              )}
+
               {importError && (
                 <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-xs flex items-start gap-2">
                   <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -1092,21 +1123,40 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                 <h4 className="font-semibold text-xs uppercase tracking-wider text-[#7A7265]">
                   Сброс и управление
                 </h4>
+                {!currentUser && (
+                  <p className="text-[11px] text-[#8A8172]">
+                    Управление библиотекой (сброс и очистка) доступно после авторизации через Google.
+                  </p>
+                )}
                 <div className="flex flex-wrap items-center gap-3">
                   <button
                     onClick={() => {
+                      if (!currentUser) {
+                        onClose();
+                        onOpenAuthModal?.();
+                        return;
+                      }
                       onResetToDemo();
                       onClose();
                     }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[#FAF8F5] border border-[#DDD5C7] hover:border-[#24211D] rounded-lg text-[#24211D] font-medium transition-colors shadow-xs"
+                    title={currentUser ? 'Сбросить' : 'Требуется вход через Google'}
                   >
-                    <Sparkles className="w-3.5 h-3.5 text-[#8A5A36]" />
+                    {!currentUser ? <Lock className="w-3.5 h-3.5 text-[#8A8172]" /> : <Sparkles className="w-3.5 h-3.5 text-[#8A5A36]" />}
                     <span>Загрузить эталонную демо-библиотеку</span>
                   </button>
 
                   <button
-                    onClick={() => setShowClearConfirm(true)}
+                    onClick={() => {
+                      if (!currentUser) {
+                        onClose();
+                        onOpenAuthModal?.();
+                        return;
+                      }
+                      setShowClearConfirm(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
+                    title={currentUser ? 'Очистить' : 'Требуется вход через Google'}
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                     <span>Очистить все книги</span>

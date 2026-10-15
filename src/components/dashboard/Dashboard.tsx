@@ -1,7 +1,8 @@
 import React from 'react';
+import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
 import { BookCover } from '../common/BookCover';
-import { Plus, Check, Clock, BookOpen, Star, Sparkles } from 'lucide-react';
+import { Plus, Check, Clock, BookOpen, Star, Sparkles, Lock, Cloud } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface DashboardProps {
@@ -11,6 +12,8 @@ interface DashboardProps {
   onGoToShelf: () => void;
   onQuickComplete: (book: Book) => void;
   onLoadDemo: () => void;
+  currentUser?: User | null;
+  onOpenAuthModal?: () => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -20,6 +23,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onGoToShelf,
   onQuickComplete,
   onLoadDemo,
+  currentUser,
+  onOpenAuthModal,
 }) => {
   const currentYear = new Date().getFullYear();
 
@@ -90,7 +95,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             Добавить первую книгу
           </button>
           <button
-            onClick={onLoadDemo}
+            onClick={() => {
+              if (!currentUser) {
+                onOpenAuthModal?.();
+                return;
+              }
+              onLoadDemo();
+            }}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-[#24211D] bg-[#EFE9DF] rounded-md hover:bg-[#E4DCCE] transition-colors"
           >
             <Sparkles className="w-4 h-4 text-[#8A5A36]" />
@@ -102,7 +113,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Editorial Welcome Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-[#E8E2D8]">
         <div>
@@ -117,6 +128,28 @@ export const Dashboard: React.FC<DashboardProps> = ({
           Срез на {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
         </div>
       </div>
+
+      {/* Read-Only Banner for Unauthenticated Visitors */}
+      {!currentUser && (
+        <div className="bg-[#FFF8E7] border border-[#E8DFCF] rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5C4828]">
+          <div className="flex items-start sm:items-center gap-2.5">
+            <Lock className="w-4 h-4 text-[#8A5A36] shrink-0 mt-0.5 sm:mt-0" />
+            <div>
+              <span className="font-semibold text-[#24211D]">Книжная полка работает в режиме предварительного просмотра.</span>
+              <p className="text-[11px] text-[#6B5A42] mt-0.5">
+                Чтобы добавлять книги, сохранять прочитанное в облако и смотреть персональную статистику, авторизуйтесь через Google.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onOpenAuthModal}
+            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shrink-0 shadow-xs"
+          >
+            <Cloud className="w-3.5 h-3.5 text-[#EFE9DF]" />
+            <span>Подключить Google Облако</span>
+          </button>
+        </div>
+      )}
 
       {/* Primary KPI Strips - Anti-slop, clean typography, tabular figures */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">
@@ -254,11 +287,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
                     <div className="pt-3 mt-2 border-t border-[#EFE9DF] flex items-center justify-between gap-2">
                       <button
-                        onClick={() => onQuickComplete(book)}
+                        onClick={() => {
+                          if (!currentUser) {
+                            onOpenAuthModal?.();
+                            return;
+                          }
+                          onQuickComplete(book);
+                        }}
                         className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-[#273B30] bg-[#E9EFE9] hover:bg-[#DCE7DC] rounded transition-colors"
-                        title="Отметить как прочитанную"
+                        title={currentUser ? "Отметить как прочитанную" : "Требуется авторизация через Google"}
                       >
-                        <Check className="w-3.5 h-3.5" />
+                        {!currentUser ? <Lock className="w-3.5 h-3.5 text-[#8A8172]" /> : <Check className="w-3.5 h-3.5" />}
                         <span>Завершить</span>
                       </button>
 

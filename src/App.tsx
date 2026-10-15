@@ -27,12 +27,14 @@ import { LibraryView } from './components/library/LibraryView';
 import { StatisticsView } from './components/statistics/StatisticsView';
 import { CalendarView } from './components/calendar/CalendarView';
 import { GenresView } from './components/genres/GenresView';
+import { Lock, Cloud } from 'lucide-react';
 import { BookDetailModal } from './components/book/BookDetailModal';
 import { BookFormModal } from './components/book/BookFormModal';
 import { QuickCompleteModal } from './components/book/QuickCompleteModal';
 import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
 import { AuthModal } from './components/auth/AuthModal';
+import { StatisticsAuthGate } from './components/statistics/StatisticsAuthGate';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -189,8 +191,24 @@ export default function App() {
     }
   };
 
+  // Guard helper to prevent unauthenticated/unsynchronized data modifications
+  const ensureAuthenticated = (): boolean => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return false;
+    }
+    return true;
+  };
+
+  const handleOpenAddModal = () => {
+    if (!ensureAuthenticated()) return;
+    setEditingBook(null);
+    setIsAddModalOpen(true);
+  };
+
   // Save book (create or edit) -> writes to local storage AND to Firestore in real time
   const handleSaveBook = async (book: Book) => {
+    if (!ensureAuthenticated()) return;
     try {
       // 1. Optimistic local update
       await storageService.saveBook(book);
@@ -241,6 +259,7 @@ export default function App() {
 
   // Delete book -> removes from local storage AND from Firestore
   const handleDeleteBook = async (id: string) => {
+    if (!ensureAuthenticated()) return;
     try {
       await storageService.deleteBook(id);
       const nextList = books.filter((b) => b.id !== id);
@@ -266,6 +285,7 @@ export default function App() {
 
   // Quick complete book
   const handleQuickComplete = async (updatedBook: Book) => {
+    if (!ensureAuthenticated()) return;
     await handleSaveBook(updatedBook);
     setQuickCompleteBook(null);
     if (selectedBook?.id === updatedBook.id) {
@@ -275,6 +295,7 @@ export default function App() {
 
   // Revert completed book back to reading
   const handleRevertToReading = async (book: Book) => {
+    if (!ensureAuthenticated()) return;
     const reverted: Book = {
       ...book,
       status: 'reading',
@@ -287,6 +308,7 @@ export default function App() {
 
   // Merge duplicate author names
   const handleMergeAuthors = async (sourceName: string, targetName: string) => {
+    if (!ensureAuthenticated()) return;
     const updated = books.map((b) => {
       if (b.authors.includes(sourceName)) {
         const newAuthors = b.authors.map((a) => (a === sourceName ? targetName : a));
@@ -313,6 +335,7 @@ export default function App() {
 
   // Genre management
   const handleAddGenre = async (newGenre: string) => {
+    if (!ensureAuthenticated()) return;
     if (!genres.includes(newGenre)) {
       const next = [...genres, newGenre];
       setGenres(next);
@@ -324,6 +347,7 @@ export default function App() {
   };
 
   const handleEditGenre = async (oldName: string, newName: string) => {
+    if (!ensureAuthenticated()) return;
     const nextGenres = genres.map((g) => (g === oldName ? newName : g));
     setGenres(nextGenres);
     await storageService.saveGenres(nextGenres);
@@ -352,6 +376,7 @@ export default function App() {
   };
 
   const handleDeleteGenre = async (genreName: string) => {
+    if (!ensureAuthenticated()) return;
     const nextGenres = genres.filter((g) => g !== genreName);
     setGenres(nextGenres);
     await storageService.saveGenres(nextGenres);
@@ -380,6 +405,7 @@ export default function App() {
 
   // Settings & Data actions
   const handleImportBooks = async (importedBooks: Book[], mode: 'merge' | 'replace') => {
+    if (!ensureAuthenticated()) return;
     let finalBooks: Book[] = [];
     if (mode === 'replace') {
       finalBooks = importedBooks;
@@ -408,6 +434,7 @@ export default function App() {
   };
 
   const handleResetToDemo = async () => {
+    if (!ensureAuthenticated()) return;
     setBooks(INITIAL_DEMO_BOOKS);
     await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
     storageService.setSeeded(true);
@@ -421,6 +448,7 @@ export default function App() {
   };
 
   const handleClearLibrary = async () => {
+    if (!ensureAuthenticated()) return;
     setBooks([]);
     await storageService.setAllBooks([]);
     storageService.setSeeded(true);

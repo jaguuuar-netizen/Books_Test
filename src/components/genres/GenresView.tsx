@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
+import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
-import { Plus, Edit2, Trash2, Check, X, Tag, BookOpen } from 'lucide-react';
+import { Plus, Edit2, Trash2, Check, X, Tag, BookOpen, Lock, Cloud } from 'lucide-react';
 
 interface GenresViewProps {
   genres: string[];
@@ -9,6 +10,8 @@ interface GenresViewProps {
   onEditGenre: (oldName: string, newName: string) => void;
   onDeleteGenre: (name: string) => void;
   onSelectGenre: (genre: string) => void;
+  currentUser?: User | null;
+  onOpenAuthModal?: () => void;
 }
 
 export const GenresView: React.FC<GenresViewProps> = ({
@@ -18,6 +21,8 @@ export const GenresView: React.FC<GenresViewProps> = ({
   onEditGenre,
   onDeleteGenre,
   onSelectGenre,
+  currentUser,
+  onOpenAuthModal,
 }) => {
   const [newGenreName, setNewGenreName] = useState('');
   const [editingGenre, setEditingGenre] = useState<string | null>(null);
@@ -31,6 +36,10 @@ export const GenresView: React.FC<GenresViewProps> = ({
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser) {
+      onOpenAuthModal?.();
+      return;
+    }
     if (newGenreName.trim() && !genres.includes(newGenreName.trim())) {
       onAddGenre(newGenreName.trim());
       setNewGenreName('');
@@ -38,6 +47,10 @@ export const GenresView: React.FC<GenresViewProps> = ({
   };
 
   const handleStartEdit = (name: string) => {
+    if (!currentUser) {
+      onOpenAuthModal?.();
+      return;
+    }
     setEditingGenre(name);
     setEditValue(name);
   };
@@ -49,6 +62,14 @@ export const GenresView: React.FC<GenresViewProps> = ({
     setEditingGenre(null);
   };
 
+  const handleDeleteClick = (name: string) => {
+    if (!currentUser) {
+      onOpenAuthModal?.();
+      return;
+    }
+    setGenreToDelete(name);
+  };
+
   const confirmDelete = () => {
     if (genreToDelete) {
       onDeleteGenre(genreToDelete);
@@ -57,7 +78,24 @@ export const GenresView: React.FC<GenresViewProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
+      {/* Read-only notice */}
+      {!currentUser && (
+        <div className="bg-[#FFF8E7] border border-[#E8DFCF] rounded-lg p-3.5 flex items-center justify-between gap-3 text-xs text-[#5C4828]">
+          <div className="flex items-center gap-2">
+            <Lock className="w-4 h-4 text-[#8A5A36] shrink-0" />
+            <span>Режим просмотра. Чтобы добавлять, переименовывать или удалять жанры, авторизуйтесь через Google.</span>
+          </div>
+          <button
+            onClick={onOpenAuthModal}
+            className="inline-flex items-center gap-1 font-semibold text-[#8A5A36] hover:text-[#5E3023] underline shrink-0 whitespace-nowrap"
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>Войти</span>
+          </button>
+        </div>
+      )}
+
       <div className="pb-4 border-b border-[#E8E2D8] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl sm:text-3xl font-display font-semibold text-[#24211D]">
@@ -81,8 +119,9 @@ export const GenresView: React.FC<GenresViewProps> = ({
             type="submit"
             disabled={!newGenreName.trim()}
             className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-[#24211D] hover:bg-[#3B342C] rounded transition-colors disabled:opacity-50"
+            title={currentUser ? 'Добавить жанр' : 'Требуется вход через Google'}
           >
-            <Plus className="w-3.5 h-3.5" />
+            {!currentUser ? <Lock className="w-3.5 h-3.5 text-[#DDD]" /> : <Plus className="w-3.5 h-3.5" />}
             <span>Добавить</span>
           </button>
         </form>
@@ -147,14 +186,14 @@ export const GenresView: React.FC<GenresViewProps> = ({
                     <button
                       onClick={() => handleStartEdit(g)}
                       className="p-1 text-[#7A7265] hover:text-[#24211D] hover:bg-[#EFE9DF] rounded transition-colors"
-                      title="Переименовать"
+                      title={currentUser ? 'Переименовать' : 'Требуется вход через Google'}
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => setGenreToDelete(g)}
+                      onClick={() => handleDeleteClick(g)}
                       className="p-1 text-[#7A7265] hover:text-rose-700 hover:bg-rose-50 rounded transition-colors"
-                      title="Удалить жанр"
+                      title={currentUser ? 'Удалить жанр' : 'Требуется вход через Google'}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
