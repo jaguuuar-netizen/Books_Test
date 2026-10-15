@@ -1,0 +1,35 @@
+{
+  "appId": "com.mybookshelf.app",
+  "productName": "My Book Shelf",
+  "copyright": "Copyright © 2026 My Book Shelf",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "public/**/*",
+    "index.js",
+    "index.cjs",
+    "package.json"
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "My Book Shelf"
+  }
+}

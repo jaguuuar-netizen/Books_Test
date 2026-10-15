@@ -1,0 +1,6 @@
+{
+  "name": "My Book Shelf",
+  "description": "Персональный книжный дневник, виртуальная книжная полка и аналитический дашборд для учёта прочитанных книг и анализа читательских привычек.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
