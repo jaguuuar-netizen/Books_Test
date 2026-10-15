@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth } from './services/firebase';
+import { auth, getAccessToken } from './services/firebase';
 import { 
   subscribeToCloudBooks, 
   subscribeToCloudGenres, 
@@ -11,6 +11,12 @@ import {
   deleteGenreFromCloud,
   isStockDemoBooks
 } from './services/cloudSync';
+import { 
+  GoogleSheetsConfig, 
+  loadGoogleSheetsConfig, 
+  saveGoogleSheetsConfig, 
+  writeBooksToSpreadsheet 
+} from './services/googleSheets';
 import { Book } from './types/book';
 import { storageService, DEFAULT_GENRES } from './services/storage';
 import { INITIAL_DEMO_BOOKS } from './services/demoData';
@@ -36,6 +42,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig | null>(() => loadGoogleSheetsConfig());
+  const sheetsConfigRef = useRef(sheetsConfig);
+  sheetsConfigRef.current = sheetsConfig;
 
   // Modals state
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
@@ -160,20 +169,43 @@ export default function App() {
     };
   }, []);
 
+  // Automatic background update to Google Sheets when enabled and token available
+  const syncToGoogleSheetsIfEnabled = async (updatedBooks: Book[]) => {
+    try {
+      const cfg = sheetsConfigRef.current;
+      if (!cfg || !cfg.autoSync || !cfg.spreadsheetId) return;
+      const token = await getAccessToken();
+      if (!token) return;
+      await writeBooksToSpreadsheet(token, cfg.spreadsheetId, updatedBooks);
+      const updated: GoogleSheetsConfig = {
+        ...cfg,
+        lastSyncedAt: new Date().toISOString(),
+        lastSyncCount: updatedBooks.length,
+      };
+      saveGoogleSheetsConfig(updated);
+      setSheetsConfig(updated);
+    } catch (err) {
+      console.warn('Auto-sync to Google Sheets failed or skipped:', err);
+    }
+  };
+
   // Save book (create or edit) -> writes to local storage AND to Firestore in real time
   const handleSaveBook = async (book: Book) => {
     try {
       // 1. Optimistic local update
       await storageService.saveBook(book);
 
+      let updatedList: Book[] = [];
       setBooks((prev) => {
         const idx = prev.findIndex((b) => b.id === book.id);
         if (idx >= 0) {
           const next = [...prev];
           next[idx] = book;
+          updatedList = next;
           return next;
         }
-        return [book, ...prev];
+        updatedList = [book, ...prev];
+        return updatedList;
       });
 
       // 2. Propagate to Cloud -> updates all other connected devices (Phone/PC)
@@ -196,6 +228,11 @@ export default function App() {
           }
         }
       }
+
+      // 4. Auto-sync to Google Sheets if configured
+      if (updatedList.length > 0) {
+        syncToGoogleSheetsIfEnabled(updatedList);
+      }
     } catch (err) {
       console.error('Failed to save book:', err);
       setIsSyncing(false);
@@ -206,7 +243,8 @@ export default function App() {
   const handleDeleteBook = async (id: string) => {
     try {
       await storageService.deleteBook(id);
-      setBooks((prev) => prev.filter((b) => b.id !== id));
+      const nextList = books.filter((b) => b.id !== id);
+      setBooks(nextList);
       if (selectedBook?.id === id) {
         setSelectedBook(null);
       }
@@ -217,6 +255,9 @@ export default function App() {
         setIsSyncing(false);
         setLastSyncedAt(new Date());
       }
+
+      // Auto-sync to Google Sheets
+      syncToGoogleSheetsIfEnabled(nextList);
     } catch (err) {
       console.error('Failed to delete book:', err);
       setIsSyncing(false);
@@ -363,6 +404,7 @@ export default function App() {
       setIsSyncing(false);
       setLastSyncedAt(new Date());
     }
+    syncToGoogleSheetsIfEnabled(finalBooks);
   };
 
   const handleResetToDemo = async () => {
@@ -375,6 +417,7 @@ export default function App() {
       setIsSyncing(false);
       setLastSyncedAt(new Date());
     }
+    syncToGoogleSheetsIfEnabled(INITIAL_DEMO_BOOKS);
   };
 
   const handleClearLibrary = async () => {
@@ -387,6 +430,7 @@ export default function App() {
       setIsSyncing(false);
       setLastSyncedAt(new Date());
     }
+    syncToGoogleSheetsIfEnabled([]);
   };
 
   if (isLoading) {
@@ -418,6 +462,7 @@ export default function App() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         isSyncing={isSyncing}
         lastSyncedAt={lastSyncedAt}
+        hasConnectedSheets={Boolean(sheetsConfig?.spreadsheetId)}
       />
 
       {/* Main App Viewport */}
@@ -525,6 +570,7 @@ export default function App() {
         onImportBooks={handleImportBooks}
         onResetToDemo={handleResetToDemo}
         onClearLibrary={handleClearLibrary}
+        onSheetsConfigChange={(cfg) => setSheetsConfig(cfg)}
       />
 
       {/* Windows Program Installation Modal */}

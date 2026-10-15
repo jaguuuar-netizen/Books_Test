@@ -9,10 +9,51 @@ const app = initializeApp(firebaseConfig);
 // CRITICAL: ignoreUndefinedProperties: true prevents errors when optional fields (rating, dates, pages) are undefined
 export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
-}, firebaseConfig.firestoreDatabaseId);
+}, (firebaseConfig as any).firestoreDatabaseId);
 
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+export const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+googleProvider.addScope(SPREADSHEETS_SCOPE);
+
+// In-memory token cache (never stored in localStorage per security guidelines)
+let cachedAccessToken: string | null = null;
+
+export const getAccessToken = async (): Promise<string | null> => {
+  return cachedAccessToken;
+};
+
+export const setCachedAccessToken = (token: string | null) => {
+  cachedAccessToken = token;
+};
+
+export const clearAccessToken = () => {
+  cachedAccessToken = null;
+};
+
+// Clear cached token on sign-out
+auth.onAuthStateChanged((user) => {
+  if (!user) {
+    cachedAccessToken = null;
+  }
+});
+
+// Request or refresh OAuth access token with Google Sheets scope
+export const requestGoogleAccessToken = async (): Promise<string> => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Не удалось получить токен доступа Google. Пожалуйста, разрешите доступ к Google Таблицам.');
+    }
+    cachedAccessToken = credential.accessToken;
+    return cachedAccessToken;
+  } catch (err: any) {
+    console.error('Failed to request Google access token:', err);
+    throw err;
+  }
+};
 
 export enum OperationType {
   CREATE = 'create',

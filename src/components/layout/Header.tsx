@@ -13,6 +13,7 @@ interface HeaderProps {
   onOpenAuthModal: () => void;
   isSyncing?: boolean;
   lastSyncedAt?: Date | null;
+  hasConnectedSheets?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -25,6 +26,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAuthModal,
   isSyncing = false,
   lastSyncedAt = null,
+  hasConnectedSheets = false,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#E8E2D8]">
@@ -98,9 +100,13 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={onOpenSettingsModal}
-            className="whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A8172]"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A8172]"
+            title="Google Таблицы, ИИ, импорт и экспорт"
           >
-            Данные
+            <span>Таблицы & Данные</span>
+            {hasConnectedSheets && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" title="Google Таблица синхронизируется" />
+            )}
           </button>
         </nav>
 
