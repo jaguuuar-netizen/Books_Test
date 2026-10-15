@@ -1,5 +1,4 @@
-import React from 'react';
-import { Plus, Cloud, Check } from 'lucide-react';
+import { Plus, Cloud, Check, RefreshCw } from 'lucide-react';
 import { User } from 'firebase/auth';
 
 export type NavTab = 'dashboard' | 'shelf' | 'statistics' | 'calendar' | 'genres';
@@ -12,6 +11,8 @@ interface HeaderProps {
   onOpenWindowsModal: () => void;
   currentUser: User | null;
   onOpenAuthModal: () => void;
+  isSyncing?: boolean;
+  lastSyncedAt?: Date | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +23,8 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWindowsModal,
   currentUser,
   onOpenAuthModal,
+  isSyncing = false,
+  lastSyncedAt = null,
 }) => {
   return (
     <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#E8E2D8]">
@@ -105,18 +108,32 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-3 shrink-0">
           <button
             onClick={onOpenAuthModal}
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+            className={`inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
               currentUser
-                ? 'bg-[#E9EFE9] text-[#273B30] hover:bg-[#DFEADF]'
+                ? 'bg-[#EBF3EC] text-[#204028] hover:bg-[#DEEADB] border border-[#CDE1CD]'
                 : 'bg-[#F1ECE4] text-[#6B6357] hover:text-[#24211D] hover:bg-[#EAE4DC]'
             }`}
-            title={currentUser ? `Синхронизировано с ${currentUser.email}` : 'Войти для синхронизации с телефоном'}
+            title={
+              currentUser 
+                ? `Двусторонняя синхронизация активна (${currentUser.email})${lastSyncedAt ? ' • Обновлено ' + lastSyncedAt.toLocaleTimeString('ru-RU') : ''}` 
+                : 'Войти для синхронизации с телефоном'
+            }
           >
             {currentUser ? (
               <>
-                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                {isSyncing ? (
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-700 animate-spin shrink-0" />
+                ) : (
+                  <span className="relative flex h-2 w-2 shrink-0">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
+                  </span>
+                )}
                 <span className="truncate max-w-[90px] sm:max-w-[130px]">
                   {currentUser.displayName || currentUser.email?.split('@')[0]}
+                </span>
+                <span className="hidden xl:inline text-[10px] text-emerald-700/80 font-mono">
+                  {isSyncing ? 'обновление...' : 'в сети'}
                 </span>
               </>
             ) : (

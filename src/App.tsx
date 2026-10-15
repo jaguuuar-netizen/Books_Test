@@ -6,7 +6,10 @@ import {
   subscribeToCloudGenres, 
   saveBookToCloud, 
   deleteBookFromCloud, 
-  uploadLocalBooksBatch 
+  syncAllBooksToCloud,
+  saveGenreToCloud,
+  deleteGenreFromCloud,
+  isStockDemoBooks
 } from './services/cloudSync';
 import { Book } from './types/book';
 import { storageService, DEFAULT_GENRES } from './services/storage';
@@ -31,6 +34,8 @@ export default function App() {
   const [genres, setGenres] = useState<string[]>(DEFAULT_GENRES);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
 
   // Modals state
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
@@ -41,7 +46,7 @@ export default function App() {
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // 1. Initialize local data on mount
+  // 1. Initialize local cache on mount
   useEffect(() => {
     async function loadData() {
       try {
@@ -52,7 +57,7 @@ export default function App() {
         if (storedBooks.length > 0) {
           setBooks(storedBooks);
         } else if (!hasSeeded) {
-          // Only seed initial demo books on the very first clean visit
+          // Clean first-time visitor: seed demo books locally
           await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
           setBooks(INITIAL_DEMO_BOOKS);
         } else {
@@ -64,7 +69,7 @@ export default function App() {
         }
       } catch (err) {
         console.error('Error loading initial data from storage:', err);
-        setBooks(INITIAL_DEMO_BOOKS);
+        setBooks([]);
       } finally {
         setIsLoading(false);
       }
@@ -72,7 +77,7 @@ export default function App() {
     loadData();
   }, []);
 
-  // 2. Track Firebase Auth state & attach real-time Cloud Sync
+  // 2. Real-time two-way cloud sync with Firebase
   useEffect(() => {
     let unsubBooks: (() => void) | null = null;
     let unsubGenres: (() => void) | null = null;
@@ -81,28 +86,60 @@ export default function App() {
       setCurrentUser(user);
 
       if (user) {
-        // Subscribe to real-time books from Firestore
-        unsubBooks = subscribeToCloudBooks(user.uid, async (cloudBooks) => {
-          if (cloudBooks && cloudBooks.length > 0) {
-            setBooks(cloudBooks);
-            await storageService.setAllBooks(cloudBooks);
-          } else {
-            // First time this user logs into cloud: upload any local books
-            const localBooks = await storageService.getBooks();
-            if (localBooks.length > 0) {
-              await uploadLocalBooksBatch(user.uid, localBooks);
-            }
-          }
-        });
+        setIsSyncing(true);
 
-        // Subscribe to real-time genres from Firestore
+        // A. Bidirectional real-time listener for books
+        unsubBooks = subscribeToCloudBooks(
+          user.uid, 
+          async (cloudBooks) => {
+            setIsSyncing(false);
+            setLastSyncedAt(new Date());
+
+            if (cloudBooks && cloudBooks.length > 0) {
+              // Cloud has books: Cloud is the definitive source of truth across all devices
+              setBooks(cloudBooks);
+              await storageService.setAllBooks(cloudBooks);
+              storageService.setSeeded(true);
+
+              // Keep selectedBook detail modal live and updated
+              setSelectedBook((prev) => {
+                if (!prev) return null;
+                return cloudBooks.find((b) => b.id === prev.id) || null;
+              });
+            } else {
+              // Cloud has 0 books. Check if the user had custom books locally BEFORE signing in
+              const localBooks = await storageService.getBooks();
+              const hasCustomUserBooks = localBooks.length > 0 && !isStockDemoBooks(localBooks);
+
+              if (hasCustomUserBooks) {
+                // Upload user's real pre-existing library to cloud
+                setIsSyncing(true);
+                await syncAllBooksToCloud(user.uid, localBooks);
+                setIsSyncing(false);
+              } else {
+                // If local books were just the demo stock or empty, do NOT re-inject stock books into cloud!
+                setBooks([]);
+                await storageService.setAllBooks([]);
+                storageService.setSeeded(true);
+              }
+            }
+          },
+          (error) => {
+            console.error('Cloud books subscription error:', error);
+            setIsSyncing(false);
+          }
+        );
+
+        // B. Bidirectional real-time listener for custom genres
         unsubGenres = subscribeToCloudGenres(user.uid, async (cloudGenres) => {
           if (cloudGenres && cloudGenres.length > 0) {
             setGenres(cloudGenres);
             await storageService.saveGenres(cloudGenres);
           }
         });
+
       } else {
+        // User logged out
         if (unsubBooks) {
           unsubBooks();
           unsubBooks = null;
@@ -111,6 +148,8 @@ export default function App() {
           unsubGenres();
           unsubGenres = null;
         }
+        setIsSyncing(false);
+        setLastSyncedAt(null);
       }
     });
 
@@ -121,10 +160,10 @@ export default function App() {
     };
   }, []);
 
-  // Save book (create or update) -> writes locally + to Cloud
+  // Save book (create or edit) -> writes to local storage AND to Firestore in real time
   const handleSaveBook = async (book: Book) => {
     try {
-      // 1. Save to local persistent storage immediately
+      // 1. Optimistic local update
       await storageService.saveBook(book);
 
       setBooks((prev) => {
@@ -137,24 +176,33 @@ export default function App() {
         return [book, ...prev];
       });
 
-      // 2. If user is signed in, sync immediately to Cloud in real-time
+      // 2. Propagate to Cloud -> updates all other connected devices (Phone/PC)
       if (currentUser) {
+        setIsSyncing(true);
         await saveBookToCloud(currentUser.uid, book);
+        setIsSyncing(false);
+        setLastSyncedAt(new Date());
       }
 
-      // 3. Register any new genre
+      // 3. Register any new genres discovered
       const newGenresFound = book.genres.filter((g) => !genres.includes(g));
       if (newGenresFound.length > 0) {
         const updatedGenres = [...genres, ...newGenresFound];
         setGenres(updatedGenres);
         await storageService.saveGenres(updatedGenres);
+        if (currentUser) {
+          for (const ng of newGenresFound) {
+            await saveGenreToCloud(currentUser.uid, ng);
+          }
+        }
       }
     } catch (err) {
       console.error('Failed to save book:', err);
+      setIsSyncing(false);
     }
   };
 
-  // Delete book -> removes locally + from Cloud
+  // Delete book -> removes from local storage AND from Firestore
   const handleDeleteBook = async (id: string) => {
     try {
       await storageService.deleteBook(id);
@@ -164,14 +212,18 @@ export default function App() {
       }
 
       if (currentUser) {
+        setIsSyncing(true);
         await deleteBookFromCloud(currentUser.uid, id);
+        setIsSyncing(false);
+        setLastSyncedAt(new Date());
       }
     } catch (err) {
       console.error('Failed to delete book:', err);
+      setIsSyncing(false);
     }
   };
 
-  // Quick complete
+  // Quick complete book
   const handleQuickComplete = async (updatedBook: Book) => {
     await handleSaveBook(updatedBook);
     setQuickCompleteBook(null);
@@ -211,7 +263,10 @@ export default function App() {
     await storageService.setAllBooks(updated);
 
     if (currentUser) {
-      await uploadLocalBooksBatch(currentUser.uid, updated);
+      setIsSyncing(true);
+      await syncAllBooksToCloud(currentUser.uid, updated);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
@@ -221,6 +276,9 @@ export default function App() {
       const next = [...genres, newGenre];
       setGenres(next);
       await storageService.saveGenres(next);
+      if (currentUser) {
+        await saveGenreToCloud(currentUser.uid, newGenre);
+      }
     }
   };
 
@@ -241,8 +299,14 @@ export default function App() {
     });
     setBooks(updatedBooks);
     await storageService.setAllBooks(updatedBooks);
+
     if (currentUser) {
-      await uploadLocalBooksBatch(currentUser.uid, updatedBooks);
+      setIsSyncing(true);
+      await deleteGenreFromCloud(currentUser.uid, oldName);
+      await saveGenreToCloud(currentUser.uid, newName);
+      await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
@@ -263,8 +327,13 @@ export default function App() {
     });
     setBooks(updatedBooks);
     await storageService.setAllBooks(updatedBooks);
+
     if (currentUser) {
-      await uploadLocalBooksBatch(currentUser.uid, updatedBooks);
+      setIsSyncing(true);
+      await deleteGenreFromCloud(currentUser.uid, genreName);
+      await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
@@ -289,26 +358,34 @@ export default function App() {
     setBooks(finalBooks);
     await storageService.setAllBooks(finalBooks);
     if (currentUser) {
-      await uploadLocalBooksBatch(currentUser.uid, finalBooks);
+      setIsSyncing(true);
+      await syncAllBooksToCloud(currentUser.uid, finalBooks);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
   const handleResetToDemo = async () => {
     setBooks(INITIAL_DEMO_BOOKS);
     await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
+    storageService.setSeeded(true);
     if (currentUser) {
-      await uploadLocalBooksBatch(currentUser.uid, INITIAL_DEMO_BOOKS);
+      setIsSyncing(true);
+      await syncAllBooksToCloud(currentUser.uid, INITIAL_DEMO_BOOKS);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
   const handleClearLibrary = async () => {
     setBooks([]);
     await storageService.setAllBooks([]);
+    storageService.setSeeded(true);
     if (currentUser) {
-      // Delete all cloud books
-      for (const b of books) {
-        await deleteBookFromCloud(currentUser.uid, b.id);
-      }
+      setIsSyncing(true);
+      await syncAllBooksToCloud(currentUser.uid, []);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
     }
   };
 
@@ -327,7 +404,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#FAF8F5] text-[#24211D] flex flex-col pb-16 md:pb-0">
-      {/* Top 3-Zone Header */}
+      {/* Top 3-Zone Header with live sync indicator */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -339,6 +416,8 @@ export default function App() {
         onOpenWindowsModal={() => setIsWindowsModalOpen(true)}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        isSyncing={isSyncing}
+        lastSyncedAt={lastSyncedAt}
       />
 
       {/* Main App Viewport */}
@@ -391,7 +470,7 @@ export default function App() {
             onAddGenre={handleAddGenre}
             onEditGenre={handleEditGenre}
             onDeleteGenre={handleDeleteGenre}
-            onSelectGenre={(genre) => {
+            onSelectGenre={(_genre) => {
               setCurrentTab('shelf');
             }}
           />

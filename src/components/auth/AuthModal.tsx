@@ -32,21 +32,39 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [syncSuccessMessage, setSyncSuccessMessage] = useState('');
+  const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   if (!isOpen) return null;
+
+  const currentDomain = typeof window !== 'undefined' ? window.location.hostname : '';
+  const firebaseSettingsUrl = `https://console.firebase.google.com/project/thematic-cathode-98f9p/authentication/settings`;
+
+  const handleCopyDomain = async () => {
+    if (currentDomain) {
+      await navigator.clipboard.writeText(currentDomain);
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    }
+  };
 
   const handleGoogleSignIn = async () => {
     setIsLoading(true);
     setErrorMessage('');
+    setIsUnauthorizedDomain(false);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      if (result.user && books.length > 0) {
-        // Upload any existing local books to the new cloud account
-        await uploadLocalBooksBatch(result.user.uid, books);
-      }
+      await signInWithPopup(auth, googleProvider);
+      // Data synchronization is handled reactively by subscribeToCloudBooks
     } catch (err: any) {
       console.error('Google Sign In error:', err);
-      setErrorMessage(err.message || 'Не удалось выполнить вход через Google.');
+      const msg = err.message || '';
+      const code = err.code || '';
+      if (code === 'auth/unauthorized-domain' || msg.includes('auth/unauthorized-domain')) {
+        setIsUnauthorizedDomain(true);
+        setErrorMessage('Домен этого сайта пока не добавлен в список авторизованных доменов в Firebase.');
+      } else {
+        setErrorMessage(msg || 'Не удалось выполнить вход через Google.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -96,10 +114,80 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         <div className="p-6 space-y-6 text-xs">
-          {errorMessage && (
+          {errorMessage && !isUnauthorizedDomain && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded text-rose-800 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
+            </div>
+          )}
+
+          {isUnauthorizedDomain && (
+            <div className="p-4 bg-amber-50/80 border border-amber-300 rounded-lg text-[#3B342C] space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h5 className="font-semibold text-xs text-[#24211D]">
+                    Требуется добавить домен в Firebase Console (1 минута)
+                  </h5>
+                  <p className="text-[11px] text-[#6B6357] mt-0.5">
+                    Firebase защищает вход и разрешает авторизацию только с доменов из белого списка.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-2.5 bg-white border border-amber-200 rounded text-[11px] space-y-2">
+                <div className="text-[11px] font-medium text-[#7A7265]">Ваш текущий домен:</div>
+                <div className="flex items-center justify-between gap-2 p-1.5 bg-[#FAF8F5] border border-[#E8E2D8] rounded font-mono text-[10px] break-all">
+                  <span>{currentDomain}</span>
+                  <button
+                    onClick={handleCopyDomain}
+                    className="shrink-0 px-2 py-1 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-sans text-[10px] font-medium transition-colors"
+                  >
+                    {copiedDomain ? 'Скопировано!' : 'Копировать'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5 text-[11px] text-[#554D41]">
+                <p className="font-medium text-[#24211D]">Как добавить домен:</p>
+                <ol className="list-decimal list-inside space-y-1 pl-1">
+                  <li>
+                    Откройте{' '}
+                    <a
+                      href={firebaseSettingsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[#8A5A36] underline font-medium hover:text-[#5E3A1F]"
+                    >
+                      Настройки авторизации Firebase
+                    </a>
+                  </li>
+                  <li>
+                    Вкладка <strong>Settings</strong> &rarr; раздел <strong>Authorized domains</strong>.
+                  </li>
+                  <li>
+                    Нажмите <strong>Add domain</strong>, вставьте скопированный домен и сохраните.
+                  </li>
+                </ol>
+              </div>
+
+              <div className="pt-1 flex items-center gap-2">
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={isLoading}
+                  className="flex-1 py-1.5 px-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm text-center"
+                >
+                  {isLoading ? 'Проверка...' : 'Я добавил, войти снова'}
+                </button>
+                <a
+                  href={firebaseSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-1.5 px-3 bg-white border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] rounded font-medium text-xs transition-colors text-center inline-block"
+                >
+                  Открыть Firebase
+                </a>
+              </div>
             </div>
           )}
 
