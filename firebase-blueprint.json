@@ -1,0 +1,132 @@
+{
+  "entities": {
+    "Book": {
+      "title": "Book",
+      "description": "User's book record in their personal library",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique book identifier",
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID",
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Book title",
+          "maxLength": 500
+        },
+        "authors": {
+          "type": "array",
+          "description": "List of book authors"
+        },
+        "status": {
+          "type": "string",
+          "description": "Reading status: reading or completed",
+          "enum": ["reading", "completed"]
+        },
+        "rating": {
+          "type": "number",
+          "description": "Rating from 1 to 10"
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Reading start date (YYYY-MM-DD)"
+        },
+        "endDate": {
+          "type": "string",
+          "description": "Reading end date (YYYY-MM-DD)"
+        },
+        "pages": {
+          "type": "number",
+          "description": "Number of pages"
+        },
+        "readingHours": {
+          "type": "number",
+          "description": "Total hours spent reading"
+        },
+        "coverUrl": {
+          "type": "string",
+          "description": "Book cover image URL"
+        },
+        "coverColor": {
+          "type": "string",
+          "description": "Procedural fallback color"
+        },
+        "genres": {
+          "type": "array",
+          "description": "List of genres"
+        },
+        "notes": {
+          "type": "string",
+          "description": "Personal impressions and review notes"
+        },
+        "series": {
+          "type": "string",
+          "description": "Book series name"
+        },
+        "seriesNumber": {
+          "type": "number",
+          "description": "Volume number in series"
+        },
+        "publisher": {
+          "type": "string",
+          "description": "Publisher name"
+        },
+        "publishYear": {
+          "type": "number",
+          "description": "Year of publication"
+        },
+        "language": {
+          "type": "string",
+          "description": "Language of the book"
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "ISO timestamp of creation"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO timestamp of last update"
+        }
+      },
+      "required": ["id", "userId", "title", "authors", "status", "genres", "createdAt", "updatedAt"]
+    },
+    "UserGenre": {
+      "title": "UserGenre",
+      "description": "Custom genre item for a user",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Genre name",
+          "maxLength": 100
+        },
+        "userId": {
+          "type": "string",
+          "description": "Owner user ID",
+          "maxLength": 128
+        }
+      },
+      "required": ["name", "userId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/books/{bookId}": {
+      "schema": {
+        "$ref": "#/entities/Book"
+      },
+      "description": "Personal library books owned by the user"
+    },
+    "/users/{userId}/genres/{genreId}": {
+      "schema": {
+        "$ref": "#/entities/UserGenre"
+      },
+      "description": "Custom genre list for the user"
+    }
+  }
+}

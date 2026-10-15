@@ -1,4 +1,13 @@
 import React, { useState, useEffect } from 'react';
+import { User, onAuthStateChanged } from 'firebase/auth';
+import { auth } from './services/firebase';
+import { 
+  subscribeToCloudBooks, 
+  subscribeToCloudGenres, 
+  saveBookToCloud, 
+  deleteBookFromCloud, 
+  uploadLocalBooksBatch 
+} from './services/cloudSync';
 import { Book } from './types/book';
 import { storageService, DEFAULT_GENRES } from './services/storage';
 import { INITIAL_DEMO_BOOKS } from './services/demoData';
@@ -14,12 +23,14 @@ import { BookFormModal } from './components/book/BookFormModal';
 import { QuickCompleteModal } from './components/book/QuickCompleteModal';
 import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
+import { AuthModal } from './components/auth/AuthModal';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [books, setBooks] = useState<Book[]>([]);
   const [genres, setGenres] = useState<string[]>(DEFAULT_GENRES);
   const [isLoading, setIsLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   // Modals state
   const [selectedBook, setSelectedBook] = useState<Book | null>(null);
@@ -28,20 +39,24 @@ export default function App() {
   const [quickCompleteBook, setQuickCompleteBook] = useState<Book | null>(null);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // Initialize data on mount
+  // 1. Initialize local data on mount
   useEffect(() => {
     async function loadData() {
       try {
         const storedBooks = await storageService.getBooks();
         const storedGenres = await storageService.getGenres();
+        const hasSeeded = storageService.isSeeded();
 
         if (storedBooks.length > 0) {
           setBooks(storedBooks);
-        } else {
-          // First time launch: pre-load our high quality demo library with generated covers
+        } else if (!hasSeeded) {
+          // Only seed initial demo books on the very first clean visit
           await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
           setBooks(INITIAL_DEMO_BOOKS);
+        } else {
+          setBooks([]);
         }
 
         if (storedGenres && storedGenres.length > 0) {
@@ -57,10 +72,61 @@ export default function App() {
     loadData();
   }, []);
 
-  // Save book (create or update)
+  // 2. Track Firebase Auth state & attach real-time Cloud Sync
+  useEffect(() => {
+    let unsubBooks: (() => void) | null = null;
+    let unsubGenres: (() => void) | null = null;
+
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
+      setCurrentUser(user);
+
+      if (user) {
+        // Subscribe to real-time books from Firestore
+        unsubBooks = subscribeToCloudBooks(user.uid, async (cloudBooks) => {
+          if (cloudBooks && cloudBooks.length > 0) {
+            setBooks(cloudBooks);
+            await storageService.setAllBooks(cloudBooks);
+          } else {
+            // First time this user logs into cloud: upload any local books
+            const localBooks = await storageService.getBooks();
+            if (localBooks.length > 0) {
+              await uploadLocalBooksBatch(user.uid, localBooks);
+            }
+          }
+        });
+
+        // Subscribe to real-time genres from Firestore
+        unsubGenres = subscribeToCloudGenres(user.uid, async (cloudGenres) => {
+          if (cloudGenres && cloudGenres.length > 0) {
+            setGenres(cloudGenres);
+            await storageService.saveGenres(cloudGenres);
+          }
+        });
+      } else {
+        if (unsubBooks) {
+          unsubBooks();
+          unsubBooks = null;
+        }
+        if (unsubGenres) {
+          unsubGenres();
+          unsubGenres = null;
+        }
+      }
+    });
+
+    return () => {
+      unsubAuth();
+      if (unsubBooks) unsubBooks();
+      if (unsubGenres) unsubGenres();
+    };
+  }, []);
+
+  // Save book (create or update) -> writes locally + to Cloud
   const handleSaveBook = async (book: Book) => {
     try {
+      // 1. Save to local persistent storage immediately
       await storageService.saveBook(book);
+
       setBooks((prev) => {
         const idx = prev.findIndex((b) => b.id === book.id);
         if (idx >= 0) {
@@ -71,7 +137,12 @@ export default function App() {
         return [book, ...prev];
       });
 
-      // If user added new genres, register them in genres list
+      // 2. If user is signed in, sync immediately to Cloud in real-time
+      if (currentUser) {
+        await saveBookToCloud(currentUser.uid, book);
+      }
+
+      // 3. Register any new genre
       const newGenresFound = book.genres.filter((g) => !genres.includes(g));
       if (newGenresFound.length > 0) {
         const updatedGenres = [...genres, ...newGenresFound];
@@ -83,13 +154,17 @@ export default function App() {
     }
   };
 
-  // Delete book
+  // Delete book -> removes locally + from Cloud
   const handleDeleteBook = async (id: string) => {
     try {
       await storageService.deleteBook(id);
       setBooks((prev) => prev.filter((b) => b.id !== id));
       if (selectedBook?.id === id) {
         setSelectedBook(null);
+      }
+
+      if (currentUser) {
+        await deleteBookFromCloud(currentUser.uid, id);
       }
     } catch (err) {
       console.error('Failed to delete book:', err);
@@ -122,7 +197,6 @@ export default function App() {
     const updated = books.map((b) => {
       if (b.authors.includes(sourceName)) {
         const newAuthors = b.authors.map((a) => (a === sourceName ? targetName : a));
-        // Deduplicate in case target already existed
         const unique = Array.from(new Set(newAuthors));
         return {
           ...b,
@@ -135,6 +209,10 @@ export default function App() {
 
     setBooks(updated);
     await storageService.setAllBooks(updated);
+
+    if (currentUser) {
+      await uploadLocalBooksBatch(currentUser.uid, updated);
+    }
   };
 
   // Genre management
@@ -151,7 +229,6 @@ export default function App() {
     setGenres(nextGenres);
     await storageService.saveGenres(nextGenres);
 
-    // Also update existing books using oldName
     const updatedBooks = books.map((b) => {
       if (b.genres.includes(oldName)) {
         return {
@@ -164,6 +241,9 @@ export default function App() {
     });
     setBooks(updatedBooks);
     await storageService.setAllBooks(updatedBooks);
+    if (currentUser) {
+      await uploadLocalBooksBatch(currentUser.uid, updatedBooks);
+    }
   };
 
   const handleDeleteGenre = async (genreName: string) => {
@@ -171,7 +251,6 @@ export default function App() {
     setGenres(nextGenres);
     await storageService.saveGenres(nextGenres);
 
-    // Also clean up books containing this genre
     const updatedBooks = books.map((b) => {
       if (b.genres.includes(genreName)) {
         return {
@@ -184,6 +263,9 @@ export default function App() {
     });
     setBooks(updatedBooks);
     await storageService.setAllBooks(updatedBooks);
+    if (currentUser) {
+      await uploadLocalBooksBatch(currentUser.uid, updatedBooks);
+    }
   };
 
   // Settings & Data actions
@@ -192,7 +274,6 @@ export default function App() {
     if (mode === 'replace') {
       finalBooks = importedBooks;
     } else {
-      // Merge by title & author key
       const keyMap = new Map<string, Book>();
       books.forEach((b) => {
         const k = `${b.title.toLowerCase().trim()}::${(b.authors[0] || '').toLowerCase().trim()}`;
@@ -207,16 +288,28 @@ export default function App() {
 
     setBooks(finalBooks);
     await storageService.setAllBooks(finalBooks);
+    if (currentUser) {
+      await uploadLocalBooksBatch(currentUser.uid, finalBooks);
+    }
   };
 
   const handleResetToDemo = async () => {
     setBooks(INITIAL_DEMO_BOOKS);
     await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
+    if (currentUser) {
+      await uploadLocalBooksBatch(currentUser.uid, INITIAL_DEMO_BOOKS);
+    }
   };
 
   const handleClearLibrary = async () => {
     setBooks([]);
     await storageService.setAllBooks([]);
+    if (currentUser) {
+      // Delete all cloud books
+      for (const b of books) {
+        await deleteBookFromCloud(currentUser.uid, b.id);
+      }
+    }
   };
 
   if (isLoading) {
@@ -244,6 +337,8 @@ export default function App() {
         }}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onOpenWindowsModal={() => setIsWindowsModalOpen(true)}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       {/* Main App Viewport */}
@@ -357,6 +452,14 @@ export default function App() {
       <WindowsInstallModal
         isOpen={isWindowsModalOpen}
         onClose={() => setIsWindowsModalOpen(false)}
+      />
+
+      {/* Cloud Sync & Google Auth Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        books={books}
       />
     </div>
   );

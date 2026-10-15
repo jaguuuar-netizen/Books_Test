@@ -1,10 +1,9 @@
 import { Book } from '../types/book';
 
 const DB_NAME = 'my_book_shelf_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const BOOKS_STORE = 'books';
 const GENRES_STORE = 'genres';
-const METADATA_STORE = 'metadata';
 
 export const DEFAULT_GENRES: string[] = [
   'Детектив',
@@ -29,16 +28,19 @@ export const DEFAULT_GENRES: string[] = [
 
 class StorageService {
   private db: IDBDatabase | null = null;
+  private dbPromise: Promise<IDBDatabase | null> | null = null;
   private isIndexedDBAvailable = true;
 
   private async openDB(): Promise<IDBDatabase | null> {
     if (this.db) return this.db;
+    if (this.dbPromise) return this.dbPromise;
+
     if (typeof window === 'undefined' || !window.indexedDB) {
       this.isIndexedDBAvailable = false;
       return null;
     }
 
-    return new Promise((resolve) => {
+    this.dbPromise = new Promise((resolve) => {
       try {
         const request = window.indexedDB.open(DB_NAME, DB_VERSION);
 
@@ -50,13 +52,15 @@ class StorageService {
           if (!db.objectStoreNames.contains(GENRES_STORE)) {
             db.createObjectStore(GENRES_STORE, { keyPath: 'name' });
           }
-          if (!db.objectStoreNames.contains(METADATA_STORE)) {
-            db.createObjectStore(METADATA_STORE, { keyPath: 'key' });
-          }
         };
 
         request.onsuccess = (event) => {
           this.db = (event.target as IDBOpenDBRequest).result;
+          this.db.onversionchange = () => {
+            this.db?.close();
+            this.db = null;
+            this.dbPromise = null;
+          };
           resolve(this.db);
         };
 
@@ -65,33 +69,66 @@ class StorageService {
           this.isIndexedDBAvailable = false;
           resolve(null);
         };
+
+        request.onblocked = () => {
+          console.warn('IndexedDB blocked');
+          resolve(null);
+        };
       } catch (err) {
         console.warn('IndexedDB exception, falling back to localStorage', err);
         this.isIndexedDBAvailable = false;
         resolve(null);
       }
     });
+
+    return this.dbPromise;
+  }
+
+  // --- Seeding Check ---
+  isSeeded(): boolean {
+    try {
+      return localStorage.getItem('my_book_shelf_seeded') === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  setSeeded(value = true): void {
+    try {
+      localStorage.setItem('my_book_shelf_seeded', value ? 'true' : 'false');
+    } catch {}
   }
 
   // --- Books ---
   async getBooks(): Promise<Book[]> {
+    const fallback = this.getBooksFallback();
     const db = await this.openDB();
+
     if (db && this.isIndexedDBAvailable) {
-      return new Promise((resolve) => {
-        try {
-          const tx = db.transaction(BOOKS_STORE, 'readonly');
-          const store = tx.objectStore(BOOKS_STORE);
-          const req = store.getAll();
-          req.onsuccess = () => resolve(req.result || []);
-          req.onerror = () => {
-            resolve(this.getBooksFallback());
-          };
-        } catch {
-          resolve(this.getBooksFallback());
+      try {
+        const idbBooks = await new Promise<Book[]>((resolve) => {
+          try {
+            const tx = db.transaction(BOOKS_STORE, 'readonly');
+            const store = tx.objectStore(BOOKS_STORE);
+            const req = store.getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+          } catch {
+            resolve([]);
+          }
+        });
+
+        if (idbBooks && idbBooks.length > 0) {
+          // Sync to localStorage
+          this.saveBooksToLocalStorage(idbBooks);
+          return idbBooks;
         }
-      });
+      } catch (err) {
+        console.warn('Error reading from IndexedDB:', err);
+      }
     }
-    return this.getBooksFallback();
+
+    return fallback;
   }
 
   private getBooksFallback(): Book[] {
@@ -103,60 +140,79 @@ class StorageService {
     }
   }
 
+  private saveBooksToLocalStorage(books: Book[]): void {
+    try {
+      localStorage.setItem('my_book_shelf_books', JSON.stringify(books));
+    } catch (e) {
+      // If localStorage quota exceeded due to large base64 covers, store slim version
+      try {
+        const slim = books.map((b) => {
+          if (b.coverUrl && b.coverUrl.startsWith('data:')) {
+            return { ...b, coverUrl: undefined };
+          }
+          return b;
+        });
+        localStorage.setItem('my_book_shelf_books', JSON.stringify(slim));
+      } catch (err) {
+        console.warn('Failed to save to localStorage:', err);
+      }
+    }
+  }
+
   async saveBook(book: Book): Promise<void> {
+    // 1. Immediately update fallback storage
+    const all = this.getBooksFallback();
+    const idx = all.findIndex((b) => b.id === book.id);
+    if (idx >= 0) {
+      all[idx] = book;
+    } else {
+      all.unshift(book);
+    }
+    this.saveBooksToLocalStorage(all);
+    this.setSeeded(true);
+
+    // 2. Persist to IndexedDB and wait for transaction commit
     const db = await this.openDB();
     if (db && this.isIndexedDBAvailable) {
       await new Promise<void>((resolve, reject) => {
         try {
           const tx = db.transaction(BOOKS_STORE, 'readwrite');
           const store = tx.objectStore(BOOKS_STORE);
-          const req = store.put(book);
-          req.onsuccess = () => resolve();
-          req.onerror = () => reject(req.error);
+          store.put(book);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
         } catch (err) {
-          reject(err);
+          console.warn('IndexedDB write error, saved in localStorage fallback:', err);
+          resolve();
         }
       });
-    }
-    // Also sync localStorage for durability
-    const all = this.getBooksFallback();
-    const idx = all.findIndex((b) => b.id === book.id);
-    if (idx >= 0) {
-      all[idx] = book;
-    } else {
-      all.push(book);
-    }
-    try {
-      localStorage.setItem('my_book_shelf_books', JSON.stringify(all));
-    } catch (e) {
-      console.warn('LocalStorage quota or write warning', e);
     }
   }
 
   async deleteBook(id: string): Promise<void> {
+    const all = this.getBooksFallback().filter((b) => b.id !== id);
+    this.saveBooksToLocalStorage(all);
+
     const db = await this.openDB();
     if (db && this.isIndexedDBAvailable) {
       await new Promise<void>((resolve) => {
         try {
           const tx = db.transaction(BOOKS_STORE, 'readwrite');
           const store = tx.objectStore(BOOKS_STORE);
-          const req = store.delete(id);
-          req.onsuccess = () => resolve();
-          req.onerror = () => resolve();
+          store.delete(id);
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => resolve();
         } catch {
           resolve();
         }
       });
     }
-    const all = this.getBooksFallback().filter((b) => b.id !== id);
-    try {
-      localStorage.setItem('my_book_shelf_books', JSON.stringify(all));
-    } catch (e) {
-      console.warn('LocalStorage error', e);
-    }
   }
 
   async setAllBooks(books: Book[]): Promise<void> {
+    this.saveBooksToLocalStorage(books);
+    this.setSeeded(true);
+
     const db = await this.openDB();
     if (db && this.isIndexedDBAvailable) {
       await new Promise<void>((resolve) => {
@@ -174,37 +230,35 @@ class StorageService {
         }
       });
     }
-    try {
-      localStorage.setItem('my_book_shelf_books', JSON.stringify(books));
-    } catch (e) {
-      console.warn('LocalStorage error', e);
-    }
   }
 
   // --- Genres ---
   async getGenres(): Promise<string[]> {
+    const fallback = this.getGenresFallback();
     const db = await this.openDB();
     if (db && this.isIndexedDBAvailable) {
-      return new Promise((resolve) => {
-        try {
-          const tx = db.transaction(GENRES_STORE, 'readonly');
-          const store = tx.objectStore(GENRES_STORE);
-          const req = store.getAll();
-          req.onsuccess = () => {
-            const list = req.result ? req.result.map((item: { name: string }) => item.name) : [];
-            if (!list || list.length === 0) {
-              resolve(this.getGenresFallback());
-            } else {
+      try {
+        const idbGenres = await new Promise<string[]>((resolve) => {
+          try {
+            const tx = db.transaction(GENRES_STORE, 'readonly');
+            const store = tx.objectStore(GENRES_STORE);
+            const req = store.getAll();
+            req.onsuccess = () => {
+              const list = req.result ? req.result.map((item: { name: string }) => item.name) : [];
               resolve(list);
-            }
-          };
-          req.onerror = () => resolve(this.getGenresFallback());
-        } catch {
-          resolve(this.getGenresFallback());
+            };
+            req.onerror = () => resolve([]);
+          } catch {
+            resolve([]);
+          }
+        });
+
+        if (idbGenres && idbGenres.length > 0) {
+          return idbGenres;
         }
-      });
+      } catch {}
     }
-    return this.getGenresFallback();
+    return fallback;
   }
 
   private getGenresFallback(): string[] {
@@ -216,6 +270,10 @@ class StorageService {
   }
 
   async saveGenres(genres: string[]): Promise<void> {
+    try {
+      localStorage.setItem('my_book_shelf_genres', JSON.stringify(genres));
+    } catch {}
+
     const db = await this.openDB();
     if (db && this.isIndexedDBAvailable) {
       await new Promise<void>((resolve) => {
@@ -233,11 +291,35 @@ class StorageService {
         }
       });
     }
+  }
+
+  // --- Cloud Sync Key Management ---
+  getSyncKey(): string {
     try {
-      localStorage.setItem('my_book_shelf_genres', JSON.stringify(genres));
-    } catch (e) {
-      console.warn('LocalStorage error', e);
+      return localStorage.getItem('my_book_shelf_sync_key') || '';
+    } catch {
+      return '';
     }
+  }
+
+  setSyncKey(key: string): void {
+    try {
+      localStorage.setItem('my_book_shelf_sync_key', key.trim());
+    } catch {}
+  }
+
+  isAutoSyncEnabled(): boolean {
+    try {
+      return localStorage.getItem('my_book_shelf_auto_sync') === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  setAutoSyncEnabled(enabled: boolean): void {
+    try {
+      localStorage.setItem('my_book_shelf_auto_sync', enabled ? 'true' : 'false');
+    } catch {}
   }
 }
 
