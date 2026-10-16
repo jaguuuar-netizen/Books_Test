@@ -130,12 +130,13 @@ export default function App() {
               // Cloud has 0 books. Check if the user had custom books locally BEFORE signing in
               try {
                 const localBooks = await storageService.getBooks();
-                const hasCustomUserBooks = localBooks.length > 0 && !isStockDemoBooks(localBooks);
+                const candidateBooks = (localBooks && localBooks.length > 0) ? localBooks : books;
+                const hasCustomUserBooks = candidateBooks.length > 0 && !isStockDemoBooks(candidateBooks);
 
                 if (hasCustomUserBooks) {
                   // Upload user's real pre-existing library to cloud
                   setIsSyncing(true);
-                  await syncAllBooksToCloud(user.uid, localBooks);
+                  await syncAllBooksToCloud(user.uid, candidateBooks);
                   setLastSyncedAt(new Date());
                 } else {
                   // If local books were just the demo stock or empty
@@ -165,7 +166,7 @@ export default function App() {
         });
 
       } else {
-        // User logged out
+        // User logged out: unsubscribe and clear private user data from memory/storage
         if (unsubBooks) {
           unsubBooks();
           unsubBooks = null;
@@ -176,6 +177,8 @@ export default function App() {
         }
         setIsSyncing(false);
         setLastSyncedAt(null);
+        setBooks([]);
+        storageService.setAllBooks([]);
       }
     });
 

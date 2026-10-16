@@ -85,12 +85,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const handleManualUpload = async () => {
     if (!currentUser) return;
     setIsLoading(true);
+    setErrorMessage('');
     setSyncSuccessMessage('');
     try {
-      await uploadLocalBooksBatch(currentUser.uid, books);
-      setSyncSuccessMessage(`Успешно синхронизировано ${books.length} книг с облаком.`);
+      const booksToUpload = books;
+      if (!booksToUpload || booksToUpload.length === 0) {
+        setErrorMessage('В библиотеке сейчас нет книг для отправки.');
+        return;
+      }
+      await uploadLocalBooksBatch(currentUser.uid, booksToUpload);
+      setSyncSuccessMessage(`Успешно отправлено ${booksToUpload.length} книг в базу данных Google Облака! Теперь они мгновенно доступны на телефоне.`);
     } catch (err: any) {
-      setErrorMessage('Ошибка отправки в облако.');
+      console.error('Manual upload error:', err);
+      setErrorMessage(`Ошибка отправки в облако: ${err?.message || err}`);
     } finally {
       setIsLoading(false);
     }
