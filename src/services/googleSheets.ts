@@ -359,15 +359,15 @@ export function parseSheetRowsToBooks(rows: any[][]): Book[] {
       }
     }
 
-    // Determine rating
+    // Determine rating (10-point scale: 1 to 10)
     let rating: number | undefined;
     if (colRating >= 0 && row[colRating] !== undefined && row[colRating] !== '') {
       const rawRating = String(row[colRating]).replace(',', '.');
       const numMatch = rawRating.match(/(\d+(\.\d+)?)/);
       if (numMatch) {
         const parsed = parseFloat(numMatch[1]);
-        if (!isNaN(parsed) && parsed >= 0) {
-          rating = Math.min(5, Math.max(0, Math.round(parsed)));
+        if (!isNaN(parsed) && parsed > 0) {
+          rating = Math.min(10, Math.max(1, Math.round(parsed)));
         }
       }
     }
@@ -538,8 +538,8 @@ export function parseCSVToBooks(csvText: string): Book[] {
 export function generateAIPrompt(books: Book[], sheetUrl?: string): string {
   const completedBooks = books.filter((b) => b.status === 'completed');
   const readingBooks = books.filter((b) => b.status === 'reading');
-  const rated5 = completedBooks.filter((b) => b.rating === 5);
-  const rated4 = completedBooks.filter((b) => b.rating === 4);
+  const ratedHigh = completedBooks.filter((b) => (b.rating || 0) >= 9);
+  const ratedGood = completedBooks.filter((b) => (b.rating || 0) >= 7 && (b.rating || 0) < 9);
 
   // Frequency of genres
   const genreCount: Record<string, number> = {};
@@ -565,10 +565,10 @@ export function generateAIPrompt(books: Book[], sheetUrl?: string): string {
 ${sheetUrl ? `• Полная Google Таблица с моей библиотекой: ${sheetUrl}\n` : ''}
 `;
 
-  if (rated5.length > 0) {
-    prompt += `\n⭐ МОИ ЛЮБИМЫЕ КНИГИ (ОЦЕНКА 5 ИЗ 5):\n`;
-    rated5.slice(0, 15).forEach((b) => {
-      prompt += `• «${b.title}» — ${b.authors.join(', ')} [${b.genres.join(', ')}]`;
+  if (ratedHigh.length > 0) {
+    prompt += `\n⭐ МОИ ЛЮБИМЫЕ КНИГИ (ОЦЕНКА 9–10 ИЗ 10):\n`;
+    ratedHigh.slice(0, 15).forEach((b) => {
+      prompt += `• «${b.title}» — ${b.authors.join(', ')} [${b.genres.join(', ')}] — ${b.rating}/10★`;
       if (b.notes) {
         prompt += `\n  Мои впечатления: "${b.notes.trim()}"`;
       }
@@ -576,10 +576,10 @@ ${sheetUrl ? `• Полная Google Таблица с моей библиот�
     });
   }
 
-  if (rated4.length > 0) {
-    prompt += `\n👍 ХОРОШИЕ КНИГИ (ОЦЕНКА 4 ИЗ 5):\n`;
-    rated4.slice(0, 8).forEach((b) => {
-      prompt += `• «${b.title}» — ${b.authors.join(', ')} [${b.genres.join(', ')}]\n`;
+  if (ratedGood.length > 0) {
+    prompt += `\n👍 ХОРОШИЕ КНИГИ (ОЦЕНКА 7–8 ИЗ 10):\n`;
+    ratedGood.slice(0, 8).forEach((b) => {
+      prompt += `• «${b.title}» — ${b.authors.join(', ')} [${b.genres.join(', ')}] — ${b.rating}/10★\n`;
     });
   }
 
@@ -593,7 +593,7 @@ ${sheetUrl ? `• Полная Google Таблица с моей библиот�
   prompt += `
 🎯 ЗАДАЧА ДЛЯ ТЕБЯ:
 1. Выдели ключевые паттерны в моих литературных вкусах (темы, настроение, стиль повествования).
-2. Порекомендуй 5–7 конкретных книг, которые с высокой вероятностью понравятся мне на основе моих оценок 5/5 и заметок.
+2. Порекомендуй 5–7 конкретных книг, которые с высокой вероятностью понравятся мне на основе моих оценок 9–10/10 и заметок.
 3. Для каждой книги кратко поясни:
    - Почему именно она мне подойдёт (к каким из прочитанных мной книг она ближе всего).
    - Жанр и о чём сюжет в 2 предложениях.

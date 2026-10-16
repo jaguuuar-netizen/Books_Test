@@ -557,10 +557,7 @@ export default function App() {
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
-        onOpenAddModal={() => {
-          setEditingBook(null);
-          setIsAddModalOpen(true);
-        }}
+        onOpenAddModal={handleOpenAddModal}
         onOpenSettingsModal={() => setIsSettingsModalOpen(true)}
         onOpenWindowsModal={() => setIsWindowsModalOpen(true)}
         currentUser={currentUser}
@@ -575,14 +572,13 @@ export default function App() {
         {currentTab === 'dashboard' && (
           <Dashboard
             books={books}
-            onOpenAddModal={() => {
-              setEditingBook(null);
-              setIsAddModalOpen(true);
-            }}
+            onOpenAddModal={handleOpenAddModal}
             onSelectBook={(book) => setSelectedBook(book)}
             onGoToShelf={() => setCurrentTab('shelf')}
             onQuickComplete={(book) => setQuickCompleteBook(book)}
             onLoadDemo={handleResetToDemo}
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
 
@@ -590,10 +586,7 @@ export default function App() {
           <LibraryView
             books={books}
             onSelectBook={(book) => setSelectedBook(book)}
-            onOpenAddModal={() => {
-              setEditingBook(null);
-              setIsAddModalOpen(true);
-            }}
+            onOpenAddModal={handleOpenAddModal}
             genresList={genres}
           />
         )}
@@ -623,6 +616,8 @@ export default function App() {
             onSelectGenre={(_genre) => {
               setCurrentTab('shelf');
             }}
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
       </main>
@@ -645,6 +640,8 @@ export default function App() {
         onDelete={handleDeleteBook}
         onQuickComplete={(book) => setQuickCompleteBook(book)}
         onRevertToReading={handleRevertToReading}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       {/* Add / Edit Book Modal */}

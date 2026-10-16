@@ -811,7 +811,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                         Советы от ИИ: что почитать дальше?
                       </h4>
                       <p className="text-xs text-[#3E5C44] mt-0.5 leading-relaxed">
-                        Мы сформировали персональный промпт на основе ваших любимых книг (оценки 5/5, 4/5, любимые жанры и личные заметки). Скопируйте его и отправьте любой нейросети!
+                        Мы сформировали персональный промпт на основе ваших любимых книг (оценки 9–10/10, любимые жанры и личные заметки). Скопируйте его и отправьте любой нейросети!
                       </p>
                     </div>
                   </div>
@@ -1058,7 +1058,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                           </span>
                           <span className="text-[10px] text-[#8A5A36] ml-2 shrink-0">
                             {b.status === 'completed' ? 'Прочитана' : 'Читаю'}
-                            {b.rating ? ` (${b.rating}/5★)` : ''}
+                            {b.rating ? ` (${b.rating}/10★)` : ''}
                           </span>
                         </div>
                       ))}

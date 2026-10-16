@@ -21,15 +21,18 @@ export function isStockDemoBooks(books: Book[]): boolean {
 }
 
 /**
- * Safe alphanumeric book ID compliant with Firestore rules regex ^[a-zA-Z0-9_\-]+$
+ * Safe alphanumeric book ID for Firestore document path.
+ * Retains existing IDs cleanly, replacing slashes or invalid path characters.
  */
 export function toSafeBookId(id?: string): string {
-  if (id && typeof id === 'string' && /^[a-zA-Z0-9_\-]{3,120}$/.test(id.trim())) {
-    return id.trim();
+  if (id && typeof id === 'string' && id.trim().length > 0) {
+    const clean = id.trim().replace(/[\/\\]/g, '_').substring(0, 120);
+    if (clean.length > 0) {
+      return clean;
+    }
   }
-  const clean = (id || '').replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 30);
   const rnd = Math.random().toString(36).substring(2, 8);
-  return `b_${clean || 'book'}_${Date.now()}_${rnd}`;
+  return `book_${Date.now()}_${rnd}`;
 }
 
 /**

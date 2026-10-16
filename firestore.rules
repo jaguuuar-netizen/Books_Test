@@ -2,25 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper functions
     function isSignedIn() {
       return request.auth != null;
     }
 
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
     }
 
     // Default deny all unknown collections
@@ -34,28 +21,12 @@ service cloud.firestore {
 
       // Books subcollection
       match /books/{bookId} {
-        allow get, list: if isOwner(userId);
-        
-        allow create: if isOwner(userId) && isValidId(bookId) 
-          && incoming().userId == request.auth.uid
-          && incoming().title is string && incoming().title.size() <= 500
-          && incoming().status in ['reading', 'completed'];
-
-        allow update: if isOwner(userId) && isValidId(bookId)
-          && incoming().userId == request.auth.uid
-          && incoming().title is string && incoming().title.size() <= 500
-          && incoming().status in ['reading', 'completed'];
-
-        allow delete: if isOwner(userId) && isValidId(bookId);
+        allow read, write: if isOwner(userId);
       }
 
       // Custom genres subcollection
       match /genres/{genreId} {
-        allow read: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidId(genreId) 
-          && incoming().userId == request.auth.uid
-          && incoming().name is string && incoming().name.size() <= 100;
-        allow delete: if isOwner(userId) && isValidId(genreId);
+        allow read, write: if isOwner(userId);
       }
     }
   }
