@@ -1,4 +1,7 @@
 import { Book } from '../types/book';
+import { normalizeRussianDate } from '../utils/date';
+
+export { normalizeRussianDate } from '../utils/date';
 
 export interface GoogleSheetsConfig {
   spreadsheetId: string;
@@ -399,9 +402,9 @@ export function parseSheetRowsToBooks(rows: any[][]): Book[] {
       if (!isNaN(h) && h >= 0) readingHours = h;
     }
 
-    // Dates
-    const endDate = colEndDate >= 0 && row[colEndDate] ? String(row[colEndDate]).trim() : undefined;
-    const startDate = colStartDate >= 0 && row[colStartDate] ? String(row[colStartDate]).trim() : undefined;
+    // Dates (strictly parse Day-First format: DD.MM.YYYY into standard ISO YYYY-MM-DD)
+    const endDate = colEndDate >= 0 ? normalizeRussianDate(row[colEndDate]) : undefined;
+    const startDate = colStartDate >= 0 ? normalizeRussianDate(row[colStartDate]) : undefined;
 
     // Metadata
     const publisher = colPublisher >= 0 && row[colPublisher] ? String(row[colPublisher]).trim() : undefined;

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
 import { BookCover } from '../common/BookCover';
+import { formatDateRU } from '../../utils/date';
 import { 
   X, 
   Edit3, 
@@ -187,14 +188,14 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
                 <div>
                   <span className="text-[#8A8172] block text-[11px]">Начало:</span>
                   <span className="font-mono tabular-nums text-[#24211D]">
-                    {book.startDate ? new Date(book.startDate).toLocaleDateString('ru-RU') : '—'}
+                    {formatDateRU(book.startDate)}
                   </span>
                 </div>
 
                 <div>
                   <span className="text-[#8A8172] block text-[11px]">Окончание:</span>
                   <span className="font-mono tabular-nums text-[#24211D]">
-                    {book.endDate ? new Date(book.endDate).toLocaleDateString('ru-RU') : '—'}
+                    {formatDateRU(book.endDate)}
                   </span>
                 </div>
               </div>

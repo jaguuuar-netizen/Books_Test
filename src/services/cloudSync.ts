@@ -10,6 +10,7 @@ import {
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { Book } from '../types/book';
 import { INITIAL_DEMO_BOOKS } from './demoData';
+import { normalizeRussianDate } from '../utils/date';
 
 /**
  * Check if the provided books array is identical to the default INITIAL_DEMO_BOOKS.
@@ -68,8 +69,8 @@ export function sanitizeBookForFirestore(book: Book, userId: string): Record<str
     clean.rating = Math.min(10, Math.max(1, Math.round(book.rating)));
   }
 
-  if (book.startDate) clean.startDate = String(book.startDate).trim();
-  if (clean.status === 'completed' && book.endDate) clean.endDate = String(book.endDate).trim();
+  if (book.startDate) clean.startDate = normalizeRussianDate(book.startDate) || String(book.startDate).trim();
+  if (clean.status === 'completed' && book.endDate) clean.endDate = normalizeRussianDate(book.endDate) || String(book.endDate).trim();
   if (typeof book.pages === 'number' && !isNaN(book.pages) && book.pages > 0) clean.pages = Math.round(book.pages);
   if (typeof book.readingHours === 'number' && !isNaN(book.readingHours) && book.readingHours >= 0) clean.readingHours = Number(book.readingHours.toFixed(1));
   if (book.coverColor) clean.coverColor = book.coverColor;

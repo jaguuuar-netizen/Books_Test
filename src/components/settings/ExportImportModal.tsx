@@ -36,6 +36,7 @@ import {
   getSpreadsheetMetadata
 } from '../../services/googleSheets';
 import { getAccessToken, requestGoogleAccessToken } from '../../services/firebase';
+import { normalizeRussianDate, formatDateRU } from '../../utils/date';
 
 interface ExportImportModalProps {
   isOpen: boolean;
@@ -415,8 +416,8 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
               authors: Array.isArray(b.authors) ? b.authors : ['Неизвестный автор'],
               status: b.status === 'completed' ? 'completed' : 'reading',
               rating: typeof b.rating === 'number' ? b.rating : undefined,
-              startDate: b.startDate,
-              endDate: b.endDate,
+              startDate: normalizeRussianDate(b.startDate) || b.startDate,
+              endDate: normalizeRussianDate(b.endDate) || b.endDate,
               pages: typeof b.pages === 'number' ? b.pages : undefined,
               readingHours: typeof b.readingHours === 'number' ? b.readingHours : undefined,
               coverUrl: b.coverUrl,
@@ -1059,6 +1060,7 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
                           <span className="text-[10px] text-[#8A5A36] ml-2 shrink-0">
                             {b.status === 'completed' ? 'Прочитана' : 'Читаю'}
                             {b.rating ? ` (${b.rating}/10★)` : ''}
+                            {b.endDate ? ` · ${formatDateRU(b.endDate)}` : ''}
                           </span>
                         </div>
                       ))}

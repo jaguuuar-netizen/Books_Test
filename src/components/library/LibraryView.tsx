@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Book, ViewMode, SortField, SortOrder, BookFilter } from '../../types/book';
 import { BookCover } from '../common/BookCover';
+import { formatDateRU } from '../../utils/date';
 import { 
   Search, 
   SlidersHorizontal, 
@@ -606,7 +607,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       {book.readingHours ? `${book.readingHours} ч.` : '—'}
                     </td>
                     <td className="py-2 px-3 font-mono text-[11px] tabular-nums text-[#8A8172]">
-                      {book.endDate || book.startDate || '—'}
+                      {book.endDate ? formatDateRU(book.endDate) : (book.startDate ? formatDateRU(book.startDate) : '—')}
                     </td>
                   </tr>
                 ))}

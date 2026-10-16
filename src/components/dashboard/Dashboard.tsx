@@ -2,6 +2,7 @@ import React from 'react';
 import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
 import { BookCover } from '../common/BookCover';
+import { formatLongDateRU } from '../../utils/date';
 import { Plus, Check, Clock, BookOpen, Star, Sparkles, Lock, Cloud } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -366,11 +367,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <div className="flex items-center gap-2 text-[11px] text-[#8A8172] mt-1 font-mono tabular-nums">
                       {book.endDate && (
                         <span>
-                          {new Date(book.endDate).toLocaleDateString('ru-RU', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                          })}
+                          {formatLongDateRU(book.endDate)}
                         </span>
                       )}
                       {book.pages && (
