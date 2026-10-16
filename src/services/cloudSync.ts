@@ -21,38 +21,61 @@ export function isStockDemoBooks(books: Book[]): boolean {
 }
 
 /**
+ * Safe alphanumeric book ID compliant with Firestore rules regex ^[a-zA-Z0-9_\-]+$
+ */
+export function toSafeBookId(id?: string): string {
+  if (id && typeof id === 'string' && /^[a-zA-Z0-9_\-]{3,120}$/.test(id.trim())) {
+    return id.trim();
+  }
+  const clean = (id || '').replace(/[^a-zA-Z0-9_\-]/g, '_').substring(0, 30);
+  const rnd = Math.random().toString(36).substring(2, 8);
+  return `b_${clean || 'book'}_${Date.now()}_${rnd}`;
+}
+
+/**
  * Clean book data for Firestore:
+ * - Ensures safe book ID
  * - Drops undefined keys
  * - Ensures required fields
  * - Drops excessively large base64 covers (>400KB) to respect Firestore document size limits
  */
 export function sanitizeBookForFirestore(book: Book, userId: string): Record<string, any> {
+  const safeId = toSafeBookId(book.id);
+  const rawTitle = (book.title || 'Без названия').trim();
+  const cleanTitle = rawTitle.length > 0 ? rawTitle.substring(0, 500) : 'Без названия';
+
+  const validAuthors = Array.isArray(book.authors) && book.authors.length > 0
+    ? book.authors.map((a) => String(a || '').trim()).filter(Boolean)
+    : [];
+
   const clean: Record<string, any> = {
-    id: book.id,
+    id: safeId,
     userId,
-    title: (book.title || 'Без названия').substring(0, 500),
-    authors: Array.isArray(book.authors) && book.authors.length > 0 ? book.authors : ['Неизвестный автор'],
-    status: book.status === 'completed' ? 'completed' : 'reading',
-    genres: Array.isArray(book.genres) ? book.genres : [],
+    title: cleanTitle,
+    authors: validAuthors.length > 0 ? validAuthors : ['Неизвестный автор'],
+    status: book.status === 'reading' ? 'reading' : 'completed',
+    genres: Array.isArray(book.genres) && book.genres.length > 0
+      ? book.genres.map((g) => String(g || '').trim()).filter(Boolean)
+      : ['Другое'],
     createdAt: book.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
 
-  if (book.status === 'completed' && typeof book.rating === 'number' && !isNaN(book.rating)) {
+  if (clean.status === 'completed' && typeof book.rating === 'number' && !isNaN(book.rating)) {
     clean.rating = Math.min(10, Math.max(1, Math.round(book.rating)));
   }
 
-  if (book.startDate) clean.startDate = book.startDate;
-  if (book.status === 'completed' && book.endDate) clean.endDate = book.endDate;
-  if (typeof book.pages === 'number' && !isNaN(book.pages)) clean.pages = book.pages;
-  if (typeof book.readingHours === 'number' && !isNaN(book.readingHours)) clean.readingHours = book.readingHours;
+  if (book.startDate) clean.startDate = String(book.startDate).trim();
+  if (clean.status === 'completed' && book.endDate) clean.endDate = String(book.endDate).trim();
+  if (typeof book.pages === 'number' && !isNaN(book.pages) && book.pages > 0) clean.pages = Math.round(book.pages);
+  if (typeof book.readingHours === 'number' && !isNaN(book.readingHours) && book.readingHours >= 0) clean.readingHours = Number(book.readingHours.toFixed(1));
   if (book.coverColor) clean.coverColor = book.coverColor;
-  if (book.notes) clean.notes = book.notes;
-  if (book.series) clean.series = book.series;
+  if (book.notes) clean.notes = String(book.notes).trim();
+  if (book.series) clean.series = String(book.series).trim();
   if (typeof book.seriesNumber === 'number' && !isNaN(book.seriesNumber)) clean.seriesNumber = book.seriesNumber;
-  if (book.publisher) clean.publisher = book.publisher;
+  if (book.publisher) clean.publisher = String(book.publisher).trim();
   if (typeof book.publishYear === 'number' && !isNaN(book.publishYear)) clean.publishYear = book.publishYear;
-  if (book.language) clean.language = book.language;
+  if (book.language) clean.language = String(book.language).trim();
 
   // Handle coverUrl: preserve URL, but strip massive data URI (>400KB) to avoid 1MB doc ceiling
   if (book.coverUrl) {
@@ -89,7 +112,6 @@ export function subscribeToCloudBooks(
   onUpdate: (books: Book[]) => void,
   onError?: (error: unknown) => void
 ): () => void {
-  const booksPath = `users/${userId}/books`;
   const booksCol = collection(db, 'users', userId, 'books');
 
   const unsubscribe = onSnapshot(
@@ -111,9 +133,15 @@ export function subscribeToCloudBooks(
       onUpdate(books);
     },
     (error) => {
-      console.error('Firestore subscribe books error:', error);
-      if (onError) onError(error);
-      handleFirestoreError(error, OperationType.GET, booksPath);
+      console.warn('Firestore subscribe books notice/error:', error);
+      if (onError) {
+        try {
+          onError(error);
+        } catch (e) {
+          console.warn('Error in onError callback:', e);
+        }
+      }
+      // Never throw inside onSnapshot callback, so client keeps active connection
     }
   );
 
@@ -145,7 +173,6 @@ export function subscribeToCloudGenres(
   userId: string,
   onUpdate: (genres: string[]) => void
 ): () => void {
-  const genresPath = `users/${userId}/genres`;
   const genresCol = collection(db, 'users', userId, 'genres');
 
   const unsubscribe = onSnapshot(
@@ -161,7 +188,7 @@ export function subscribeToCloudGenres(
       }
     },
     (error) => {
-      handleFirestoreError(error, OperationType.GET, genresPath);
+      console.warn('Firestore subscribe genres notice/error:', error);
     }
   );
 
@@ -171,12 +198,14 @@ export function subscribeToCloudGenres(
 /**
  * Save single book to cloud in real time.
  */
-export async function saveBookToCloud(userId: string, book: Book): Promise<void> {
-  const path = `users/${userId}/books/${book.id}`;
+export async function saveBookToCloud(userId: string, book: Book): Promise<string> {
+  const safeId = toSafeBookId(book.id);
+  const path = `users/${userId}/books/${safeId}`;
   try {
-    const bookRef = doc(db, 'users', userId, 'books', book.id);
-    const payload = sanitizeBookForFirestore(book, userId);
+    const bookRef = doc(db, 'users', userId, 'books', safeId);
+    const payload = sanitizeBookForFirestore({ ...book, id: safeId }, userId);
     await setDoc(bookRef, payload);
+    return safeId;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
@@ -186,9 +215,10 @@ export async function saveBookToCloud(userId: string, book: Book): Promise<void>
  * Delete single book from cloud in real time.
  */
 export async function deleteBookFromCloud(userId: string, bookId: string): Promise<void> {
-  const path = `users/${userId}/books/${bookId}`;
+  const safeId = toSafeBookId(bookId);
+  const path = `users/${userId}/books/${safeId}`;
   try {
-    const bookRef = doc(db, 'users', userId, 'books', bookId);
+    const bookRef = doc(db, 'users', userId, 'books', safeId);
     await deleteDoc(bookRef);
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
@@ -198,31 +228,52 @@ export async function deleteBookFromCloud(userId: string, bookId: string): Promi
 /**
  * Sync entire book library to cloud (used for batch uploads, author merges, and imports).
  * Deletes any books in cloud that are not in the local books list.
+ * Respects the Firestore maximum of 500 writes per batch by chunking operations.
  */
 export async function syncAllBooksToCloud(userId: string, books: Book[]): Promise<void> {
   const path = `users/${userId}/books`;
   try {
     // 1. Get existing cloud book IDs to clean up orphaned entries
     const existingSnap = await getDocs(collection(db, 'users', userId, 'books'));
-    const newBookIds = new Set(books.map((b) => b.id));
+    
+    // Ensure all books have clean, safe Firestore document IDs
+    const safeBooks = books.map((b) => ({
+      ...b,
+      id: toSafeBookId(b.id),
+    }));
+    const newBookIds = new Set(safeBooks.map((b) => b.id));
 
-    const batch = writeBatch(db);
-
-    // Delete books in cloud not present in the new set
+    const deleteRefs: any[] = [];
     existingSnap.forEach((docSnap) => {
       if (!newBookIds.has(docSnap.id)) {
-        batch.delete(docSnap.ref);
+        deleteRefs.push(docSnap.ref);
       }
     });
 
-    // Write all updated books
-    for (const b of books) {
-      const bookRef = doc(db, 'users', userId, 'books', b.id);
-      batch.set(bookRef, sanitizeBookForFirestore(b, userId));
+    const CHUNK_SIZE = 300;
+
+    // 2. Commit deletions in safe chunks
+    for (let i = 0; i < deleteRefs.length; i += CHUNK_SIZE) {
+      const chunk = deleteRefs.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const ref of chunk) {
+        batch.delete(ref);
+      }
+      await batch.commit();
     }
 
-    await batch.commit();
+    // 3. Commit writes in safe chunks
+    for (let i = 0; i < safeBooks.length; i += CHUNK_SIZE) {
+      const chunk = safeBooks.slice(i, i + CHUNK_SIZE);
+      const batch = writeBatch(db);
+      for (const b of chunk) {
+        const bookRef = doc(db, 'users', userId, 'books', b.id);
+        batch.set(bookRef, sanitizeBookForFirestore(b, userId));
+      }
+      await batch.commit();
+    }
   } catch (error) {
+    console.error('syncAllBooksToCloud error:', error);
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }

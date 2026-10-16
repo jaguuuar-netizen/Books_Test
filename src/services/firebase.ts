@@ -17,25 +17,50 @@ export const googleProvider = new GoogleAuthProvider();
 export const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 googleProvider.addScope(SPREADSHEETS_SCOPE);
 
-// In-memory token cache (never stored in localStorage per security guidelines)
+// Session-scoped token cache
 let cachedAccessToken: string | null = null;
 
 export const getAccessToken = async (): Promise<string | null> => {
+  if (!cachedAccessToken && typeof window !== 'undefined') {
+    try {
+      cachedAccessToken = sessionStorage.getItem('g_oauth_token');
+    } catch {
+      // Ignore storage access error
+    }
+  }
   return cachedAccessToken;
 };
 
 export const setCachedAccessToken = (token: string | null) => {
   cachedAccessToken = token;
+  if (typeof window !== 'undefined') {
+    try {
+      if (token) {
+        sessionStorage.setItem('g_oauth_token', token);
+      } else {
+        sessionStorage.removeItem('g_oauth_token');
+      }
+    } catch {
+      // Ignore storage access error
+    }
+  }
 };
 
 export const clearAccessToken = () => {
   cachedAccessToken = null;
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem('g_oauth_token');
+    } catch {
+      // Ignore
+    }
+  }
 };
 
 // Clear cached token on sign-out
 auth.onAuthStateChanged((user) => {
   if (!user) {
-    cachedAccessToken = null;
+    clearAccessToken();
   }
 });
 

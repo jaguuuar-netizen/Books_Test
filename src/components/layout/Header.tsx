@@ -71,7 +71,9 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <span>Статистика</span>
             {!currentUser && (
-              <Lock className="w-3 h-3 text-[#8A5A36] opacity-75" title="Требуется вход через Google" />
+              <span title="Требуется вход через Google">
+                <Lock className="w-3 h-3 text-[#8A5A36] opacity-75" />
+              </span>
             )}
           </button>
           <button

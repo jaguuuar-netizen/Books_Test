@@ -260,6 +260,22 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
     setIsSheetsBusy(true);
     setImportError(null);
     try {
+      // 1. Attempt direct CSV export first (zero popups if sheet has link sharing)
+      try {
+        const res = await fetch(`https://docs.google.com/spreadsheets/d/${sheetsConfig.spreadsheetId}/export?format=csv`);
+        if (res.ok) {
+          const csvText = await res.text();
+          const parsedBooks = parseCSVToBooks(csvText);
+          if (parsedBooks.length > 0) {
+            evaluateImportPreview(parsedBooks, sheetsConfig.spreadsheetTitle || 'Google Sheets');
+            setActiveTab('import');
+            return;
+          }
+        }
+      } catch {
+        // Fall through to authenticated API read
+      }
+
       let token = await getAccessToken();
       if (!token) {
         token = await requestGoogleAccessToken();
@@ -282,44 +298,42 @@ export const ExportImportModal: React.FC<ExportImportModalProps> = ({
   const handleImportFromUrl = async () => {
     const id = extractSpreadsheetId(importSheetUrl);
     if (!id) {
-      setImportError('Пожалуйста, укажите валидную ссылку на Google Таблицу');
+      setImportError('Пожалуйста, укажите валидную ссылку на Google Таблицу (например: https://docs.google.com/spreadsheets/d/.../edit)');
       return;
     }
 
     setIsSheetsBusy(true);
     setImportError(null);
     try {
+      // 1. Try instant direct read first (works for any sheet with link sharing enabled)
+      try {
+        const res = await fetch(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv`);
+        if (res.ok) {
+          const csvText = await res.text();
+          const parsedBooks = parseCSVToBooks(csvText);
+          if (parsedBooks.length > 0) {
+            evaluateImportPreview(parsedBooks, 'Google Таблица');
+            return;
+          }
+        }
+      } catch {
+        // Fall through to Sheets API
+      }
+
+      // 2. Private sheet: use cached token or request permission if needed
       let token = await getAccessToken();
       if (!token) {
-        try {
-          token = await requestGoogleAccessToken();
-        } catch {
-          // If popup blocked or declined, attempt public CSV fallback
-        }
+        token = await requestGoogleAccessToken();
       }
 
-      let rows: any[][] = [];
-      if (token) {
-        rows = await readSpreadsheetRows(token, id, 'A1:P2000');
-      } else {
-        // Fallback: public sheet export format
-        const res = await fetch(`https://docs.google.com/spreadsheets/d/${id}/export?format=csv`);
-        if (!res.ok) {
-          throw new Error('Таблица недоступна для чтения. Убедитесь, что вы авторизованы или таблица открыта по ссылке.');
-        }
-        const csvText = await res.text();
-        const parsedBooks = parseCSVToBooks(csvText);
-        evaluateImportPreview(parsedBooks, 'Google Таблица (CSV)');
-        return;
-      }
-
+      const rows = await readSpreadsheetRows(token, id, 'A1:P2000');
       const parsedBooks = parseSheetRowsToBooks(rows);
       if (parsedBooks.length === 0) {
         throw new Error('В таблице не найдено корректных записей книг.');
       }
       evaluateImportPreview(parsedBooks, 'Google Таблица');
     } catch (err: any) {
-      setImportError(err.message || 'Не удалось прочитать таблицу');
+      setImportError(err.message || 'Не удалось прочитать таблицу. Убедитесь, что таблица доступна по ссылке или разрешен доступ к Google Таблицам.');
     } finally {
       setIsSheetsBusy(false);
     }

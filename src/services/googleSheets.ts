@@ -418,11 +418,11 @@ export function parseSheetRowsToBooks(rows: any[][]): Book[] {
     }
     const notes = colNotes >= 0 && row[colNotes] ? String(row[colNotes]).trim() : undefined;
 
-    // ID
-    let id = `book-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    // Guaranteed unique safe ID per row
+    let id = `book-${Date.now()}-${r}-${Math.random().toString(36).substring(2, 8)}`;
     if (colId >= 0 && row[colId]) {
       const rawId = String(row[colId]).trim();
-      if (rawId && /^[a-zA-Z0-9_-]{3,100}$/.test(rawId)) {
+      if (rawId && /^[a-zA-Z0-9_\-]{3,100}$/.test(rawId)) {
         id = rawId;
       }
     }

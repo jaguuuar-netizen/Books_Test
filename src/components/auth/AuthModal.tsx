@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { User, signInWithPopup, signOut } from 'firebase/auth';
-import { auth, googleProvider } from '../../services/firebase';
+import { User, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+import { auth, googleProvider, setCachedAccessToken } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
 import { Book } from '../../types/book';
 import { 
@@ -53,7 +53,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage('');
     setIsUnauthorizedDomain(false);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setCachedAccessToken(credential.accessToken);
+      }
       // Data synchronization is handled reactively by subscribeToCloudBooks
     } catch (err: any) {
       console.error('Google Sign In error:', err);

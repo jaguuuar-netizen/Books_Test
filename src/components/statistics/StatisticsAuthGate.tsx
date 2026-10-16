@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Cloud, Lock, BarChart3, TrendingUp, Sparkles, BookOpen, Clock, Users, ArrowRight } from 'lucide-react';
-import { signInWithPopup } from 'firebase/auth';
-import { auth, googleProvider } from '../../services/firebase';
+import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { auth, googleProvider, setCachedAccessToken } from '../../services/firebase';
 
 interface StatisticsAuthGateProps {
   onOpenAuthModal: () => void;
@@ -19,7 +19,11 @@ export const StatisticsAuthGate: React.FC<StatisticsAuthGateProps> = ({
     setIsSigningIn(true);
     setErrorMessage(null);
     try {
-      await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider);
+      const credential = GoogleAuthProvider.credentialFromResult(result);
+      if (credential?.accessToken) {
+        setCachedAccessToken(credential.accessToken);
+      }
     } catch (err: any) {
       console.warn('Google sign in error:', err);
       // Fallback: open auth modal where full instructions (and domain warnings) are handled

@@ -88,6 +88,15 @@ export default function App() {
     loadData();
   }, []);
 
+  // Safety watchdog: ensure isSyncing never gets stuck spinning indefinitely
+  useEffect(() => {
+    if (!isSyncing) return;
+    const timer = setTimeout(() => {
+      setIsSyncing(false);
+    }, 8000);
+    return () => clearTimeout(timer);
+  }, [isSyncing]);
+
   // 2. Real-time two-way cloud sync with Firebase
   useEffect(() => {
     let unsubBooks: (() => void) | null = null;
@@ -119,24 +128,30 @@ export default function App() {
               });
             } else {
               // Cloud has 0 books. Check if the user had custom books locally BEFORE signing in
-              const localBooks = await storageService.getBooks();
-              const hasCustomUserBooks = localBooks.length > 0 && !isStockDemoBooks(localBooks);
+              try {
+                const localBooks = await storageService.getBooks();
+                const hasCustomUserBooks = localBooks.length > 0 && !isStockDemoBooks(localBooks);
 
-              if (hasCustomUserBooks) {
-                // Upload user's real pre-existing library to cloud
-                setIsSyncing(true);
-                await syncAllBooksToCloud(user.uid, localBooks);
+                if (hasCustomUserBooks) {
+                  // Upload user's real pre-existing library to cloud
+                  setIsSyncing(true);
+                  await syncAllBooksToCloud(user.uid, localBooks);
+                  setLastSyncedAt(new Date());
+                } else {
+                  // If local books were just the demo stock or empty
+                  setBooks([]);
+                  await storageService.setAllBooks([]);
+                  storageService.setSeeded(true);
+                }
+              } catch (initErr) {
+                console.warn('Initial cloud synchronization notice:', initErr);
+              } finally {
                 setIsSyncing(false);
-              } else {
-                // If local books were just the demo stock or empty, do NOT re-inject stock books into cloud!
-                setBooks([]);
-                await storageService.setAllBooks([]);
-                storageService.setSeeded(true);
               }
             }
           },
           (error) => {
-            console.error('Cloud books subscription error:', error);
+            console.warn('Cloud books subscription notification:', error);
             setIsSyncing(false);
           }
         );
@@ -309,156 +324,218 @@ export default function App() {
   // Merge duplicate author names
   const handleMergeAuthors = async (sourceName: string, targetName: string) => {
     if (!ensureAuthenticated()) return;
-    const updated = books.map((b) => {
-      if (b.authors.includes(sourceName)) {
-        const newAuthors = b.authors.map((a) => (a === sourceName ? targetName : a));
-        const unique = Array.from(new Set(newAuthors));
-        return {
-          ...b,
-          authors: unique,
-          updatedAt: new Date().toISOString(),
-        };
+    setIsSyncing(true);
+    try {
+      const updated = books.map((b) => {
+        if (b.authors.includes(sourceName)) {
+          const newAuthors = b.authors.map((a) => (a === sourceName ? targetName : a));
+          const unique = Array.from(new Set(newAuthors));
+          return {
+            ...b,
+            authors: unique,
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return b;
+      });
+
+      setBooks(updated);
+      await storageService.setAllBooks(updated);
+
+      if (currentUser) {
+        await syncAllBooksToCloud(currentUser.uid, updated);
+        setLastSyncedAt(new Date());
       }
-      return b;
-    });
-
-    setBooks(updated);
-    await storageService.setAllBooks(updated);
-
-    if (currentUser) {
-      setIsSyncing(true);
-      await syncAllBooksToCloud(currentUser.uid, updated);
+    } catch (err) {
+      console.error('Failed to merge authors:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
   };
 
   // Genre management
   const handleAddGenre = async (newGenre: string) => {
     if (!ensureAuthenticated()) return;
-    if (!genres.includes(newGenre)) {
-      const next = [...genres, newGenre];
+    const trimmed = newGenre.trim();
+    if (!trimmed) return;
+    if (!genres.includes(trimmed)) {
+      const next = [...genres, trimmed];
       setGenres(next);
       await storageService.saveGenres(next);
       if (currentUser) {
-        await saveGenreToCloud(currentUser.uid, newGenre);
+        try {
+          await saveGenreToCloud(currentUser.uid, trimmed);
+        } catch (err) {
+          console.warn('Failed to save genre to cloud:', err);
+        }
       }
     }
   };
 
   const handleEditGenre = async (oldName: string, newName: string) => {
     if (!ensureAuthenticated()) return;
-    const nextGenres = genres.map((g) => (g === oldName ? newName : g));
-    setGenres(nextGenres);
-    await storageService.saveGenres(nextGenres);
+    setIsSyncing(true);
+    try {
+      const nextGenres = genres.map((g) => (g === oldName ? newName : g));
+      setGenres(nextGenres);
+      await storageService.saveGenres(nextGenres);
 
-    const updatedBooks = books.map((b) => {
-      if (b.genres.includes(oldName)) {
-        return {
-          ...b,
-          genres: b.genres.map((g) => (g === oldName ? newName : g)),
-          updatedAt: new Date().toISOString(),
-        };
+      const updatedBooks = books.map((b) => {
+        if (b.genres.includes(oldName)) {
+          return {
+            ...b,
+            genres: b.genres.map((g) => (g === oldName ? newName : g)),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return b;
+      });
+      setBooks(updatedBooks);
+      await storageService.setAllBooks(updatedBooks);
+
+      if (currentUser) {
+        await deleteGenreFromCloud(currentUser.uid, oldName);
+        await saveGenreToCloud(currentUser.uid, newName);
+        await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+        setLastSyncedAt(new Date());
       }
-      return b;
-    });
-    setBooks(updatedBooks);
-    await storageService.setAllBooks(updatedBooks);
-
-    if (currentUser) {
-      setIsSyncing(true);
-      await deleteGenreFromCloud(currentUser.uid, oldName);
-      await saveGenreToCloud(currentUser.uid, newName);
-      await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+    } catch (err) {
+      console.error('Failed to edit genre:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
   };
 
   const handleDeleteGenre = async (genreName: string) => {
     if (!ensureAuthenticated()) return;
-    const nextGenres = genres.filter((g) => g !== genreName);
-    setGenres(nextGenres);
-    await storageService.saveGenres(nextGenres);
+    setIsSyncing(true);
+    try {
+      const nextGenres = genres.filter((g) => g !== genreName);
+      setGenres(nextGenres);
+      await storageService.saveGenres(nextGenres);
 
-    const updatedBooks = books.map((b) => {
-      if (b.genres.includes(genreName)) {
-        return {
-          ...b,
-          genres: b.genres.filter((g) => g !== genreName),
-          updatedAt: new Date().toISOString(),
-        };
+      const updatedBooks = books.map((b) => {
+        if (b.genres.includes(genreName)) {
+          return {
+            ...b,
+            genres: b.genres.filter((g) => g !== genreName),
+            updatedAt: new Date().toISOString(),
+          };
+        }
+        return b;
+      });
+      setBooks(updatedBooks);
+      await storageService.setAllBooks(updatedBooks);
+
+      if (currentUser) {
+        await deleteGenreFromCloud(currentUser.uid, genreName);
+        await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+        setLastSyncedAt(new Date());
       }
-      return b;
-    });
-    setBooks(updatedBooks);
-    await storageService.setAllBooks(updatedBooks);
-
-    if (currentUser) {
-      setIsSyncing(true);
-      await deleteGenreFromCloud(currentUser.uid, genreName);
-      await syncAllBooksToCloud(currentUser.uid, updatedBooks);
+    } catch (err) {
+      console.error('Failed to delete genre:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
   };
 
   // Settings & Data actions
   const handleImportBooks = async (importedBooks: Book[], mode: 'merge' | 'replace') => {
     if (!ensureAuthenticated()) return;
-    let finalBooks: Book[] = [];
-    if (mode === 'replace') {
-      finalBooks = importedBooks;
-    } else {
-      const keyMap = new Map<string, Book>();
-      books.forEach((b) => {
-        const k = `${b.title.toLowerCase().trim()}::${(b.authors[0] || '').toLowerCase().trim()}`;
-        keyMap.set(k, b);
-      });
-      importedBooks.forEach((b) => {
-        const k = `${b.title.toLowerCase().trim()}::${(b.authors[0] || '').toLowerCase().trim()}`;
-        keyMap.set(k, b);
-      });
-      finalBooks = Array.from(keyMap.values());
-    }
+    setIsSyncing(true);
+    try {
+      let finalBooks: Book[] = [];
+      if (mode === 'replace') {
+        finalBooks = importedBooks;
+      } else {
+        const keyMap = new Map<string, Book>();
+        books.forEach((b) => {
+          const k = `${(b.title || '').toLowerCase().trim()}::${((b.authors && b.authors[0]) || '').toLowerCase().trim()}`;
+          keyMap.set(k, b);
+        });
+        importedBooks.forEach((b) => {
+          const k = `${(b.title || '').toLowerCase().trim()}::${((b.authors && b.authors[0]) || '').toLowerCase().trim()}`;
+          keyMap.set(k, b);
+        });
+        finalBooks = Array.from(keyMap.values());
+      }
 
-    setBooks(finalBooks);
-    await storageService.setAllBooks(finalBooks);
-    if (currentUser) {
-      setIsSyncing(true);
-      await syncAllBooksToCloud(currentUser.uid, finalBooks);
+      // Collect new genres from imported books
+      const allImportedGenres = new Set<string>();
+      finalBooks.forEach((b) => {
+        if (Array.isArray(b.genres)) {
+          b.genres.forEach((g) => {
+            if (g && g.trim()) allImportedGenres.add(g.trim());
+          });
+        }
+      });
+      const newGenresFound = Array.from(allImportedGenres).filter((g) => !genres.includes(g));
+      if (newGenresFound.length > 0) {
+        const mergedGenres = [...genres, ...newGenresFound];
+        setGenres(mergedGenres);
+        await storageService.saveGenres(mergedGenres);
+        if (currentUser) {
+          for (const ng of newGenresFound) {
+            try {
+              await saveGenreToCloud(currentUser.uid, ng);
+            } catch (err) {
+              console.warn('Could not save genre during import:', err);
+            }
+          }
+        }
+      }
+
+      setBooks(finalBooks);
+      await storageService.setAllBooks(finalBooks);
+      storageService.setSeeded(true);
+
+      if (currentUser) {
+        await syncAllBooksToCloud(currentUser.uid, finalBooks);
+        setLastSyncedAt(new Date());
+      }
+      syncToGoogleSheetsIfEnabled(finalBooks);
+    } catch (err) {
+      console.error('Failed to import books:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
-    syncToGoogleSheetsIfEnabled(finalBooks);
   };
 
   const handleResetToDemo = async () => {
     if (!ensureAuthenticated()) return;
-    setBooks(INITIAL_DEMO_BOOKS);
-    await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
-    storageService.setSeeded(true);
-    if (currentUser) {
-      setIsSyncing(true);
-      await syncAllBooksToCloud(currentUser.uid, INITIAL_DEMO_BOOKS);
+    setIsSyncing(true);
+    try {
+      setBooks(INITIAL_DEMO_BOOKS);
+      await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
+      storageService.setSeeded(true);
+      if (currentUser) {
+        await syncAllBooksToCloud(currentUser.uid, INITIAL_DEMO_BOOKS);
+        setLastSyncedAt(new Date());
+      }
+      syncToGoogleSheetsIfEnabled(INITIAL_DEMO_BOOKS);
+    } catch (err) {
+      console.error('Failed to reset to demo:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
-    syncToGoogleSheetsIfEnabled(INITIAL_DEMO_BOOKS);
   };
 
   const handleClearLibrary = async () => {
     if (!ensureAuthenticated()) return;
-    setBooks([]);
-    await storageService.setAllBooks([]);
-    storageService.setSeeded(true);
-    if (currentUser) {
-      setIsSyncing(true);
-      await syncAllBooksToCloud(currentUser.uid, []);
+    setIsSyncing(true);
+    try {
+      setBooks([]);
+      await storageService.setAllBooks([]);
+      storageService.setSeeded(true);
+      if (currentUser) {
+        await syncAllBooksToCloud(currentUser.uid, []);
+        setLastSyncedAt(new Date());
+      }
+    } catch (err) {
+      console.error('Failed to clear library:', err);
+    } finally {
       setIsSyncing(false);
-      setLastSyncedAt(new Date());
     }
-    syncToGoogleSheetsIfEnabled([]);
   };
 
   if (isLoading) {
@@ -599,6 +676,8 @@ export default function App() {
         onResetToDemo={handleResetToDemo}
         onClearLibrary={handleClearLibrary}
         onSheetsConfigChange={(cfg) => setSheetsConfig(cfg)}
+        currentUser={currentUser}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       {/* Windows Program Installation Modal */}
