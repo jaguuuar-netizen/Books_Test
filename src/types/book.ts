@@ -2,6 +2,7 @@ export type BookStatus = 'reading' | 'completed';
 
 export interface Book {
   id: string;
+  userId?: string;
   title: string;
   authors: string[];
   status: BookStatus;

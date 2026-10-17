@@ -58,30 +58,16 @@ export default function App() {
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // 1. Initialize local cache on mount
+  // 1. Initialize local cache on mount (only global settings/genres; books are loaded per authenticated user)
   useEffect(() => {
     async function loadData() {
       try {
-        const storedBooks = await storageService.getBooks();
         const storedGenres = await storageService.getGenres();
-        const hasSeeded = storageService.isSeeded();
-
-        if (storedBooks.length > 0) {
-          setBooks(storedBooks);
-        } else if (!hasSeeded) {
-          // Clean first-time visitor: seed demo books locally
-          await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
-          setBooks(INITIAL_DEMO_BOOKS);
-        } else {
-          setBooks([]);
-        }
-
         if (storedGenres && storedGenres.length > 0) {
           setGenres(storedGenres);
         }
       } catch (err) {
         console.error('Error loading initial data from storage:', err);
-        setBooks([]);
       } finally {
         setIsLoading(false);
       }
@@ -108,12 +94,23 @@ export default function App() {
       setIsAuthReady(true);
 
       if (user) {
+        // Scope local cache to this user
+        storageService.setUserId(user.uid);
         if (typeof window !== 'undefined') {
           localStorage.setItem('my_book_shelf_has_authenticated', 'true');
         }
+
+        // Fast initial paint from this user's private local cache
+        try {
+          const userCached = await storageService.getBooks();
+          if (userCached && userCached.length > 0) {
+            setBooks(userCached);
+          }
+        } catch {}
+
         setIsSyncing(true);
 
-        // A. Bidirectional real-time listener for books
+        // A. Bidirectional real-time listener for user's private books
         unsubBooks = subscribeToCloudBooks(
           user.uid, 
           async (cloudBooks) => {
@@ -132,28 +129,10 @@ export default function App() {
                 return cloudBooks.find((b) => b.id === prev.id) || null;
               });
             } else {
-              // Cloud has 0 books. Check if the user had custom books locally BEFORE signing in
-              try {
-                const localBooks = await storageService.getBooks();
-                const candidateBooks = (localBooks && localBooks.length > 0) ? localBooks : books;
-                const hasCustomUserBooks = candidateBooks.length > 0 && !isStockDemoBooks(candidateBooks);
-
-                if (hasCustomUserBooks) {
-                  // Upload user's real pre-existing library to cloud
-                  setIsSyncing(true);
-                  await syncAllBooksToCloud(user.uid, candidateBooks);
-                  setLastSyncedAt(new Date());
-                } else {
-                  // If local books were just the demo stock or empty
-                  setBooks([]);
-                  await storageService.setAllBooks([]);
-                  storageService.setSeeded(true);
-                }
-              } catch (initErr) {
-                console.warn('Initial cloud synchronization notice:', initErr);
-              } finally {
-                setIsSyncing(false);
-              }
+              // Cloud has 0 books for this user: user sees their own clean empty library
+              setBooks([]);
+              await storageService.setAllBooks([]);
+              storageService.setSeeded(true);
             }
           },
           (error) => {
@@ -171,7 +150,7 @@ export default function App() {
         });
 
       } else {
-        // User logged out or disconnected: unsubscribe cloud listeners
+        // User logged out or unauthenticated: clean up listeners and immediately clear private user data
         if (unsubBooks) {
           unsubBooks();
           unsubBooks = null;
@@ -180,9 +159,14 @@ export default function App() {
           unsubGenres();
           unsubGenres = null;
         }
+        storageService.setUserId(null);
+        setBooks([]);
+        setSelectedBook(null);
         setIsSyncing(false);
         setLastSyncedAt(null);
-        // Do not wipe cached books while offline or reconnecting; preserves data across tabs
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('my_book_shelf_has_authenticated');
+        }
       }
     });
 
@@ -596,6 +580,8 @@ export default function App() {
             onSelectBook={(book) => setSelectedBook(book)}
             onOpenAddModal={handleOpenAddModal}
             genresList={genres}
+            currentUser={currentUser}
+            onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
         )}
 

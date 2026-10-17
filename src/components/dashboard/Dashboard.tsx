@@ -230,14 +230,25 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {readingBooks.length === 0 ? (
           <div className="p-6 rounded-md border border-dashed border-[#DDD5C7] bg-[#F7F4EF] text-center">
             <p className="text-sm text-[#7A7265]">
-              Сейчас у вас нет книг в процессе чтения.
+              {currentUser
+                ? 'Сейчас у вас нет книг в процессе чтения.'
+                : 'Войдите через Google, чтобы открыть свои книги и отслеживать темп чтения.'}
             </p>
-            <button
-              onClick={onOpenAddModal}
-              className="mt-2 text-xs font-semibold text-[#24211D] hover:underline"
-            >
-              + Начать новую книгу
-            </button>
+            {currentUser ? (
+              <button
+                onClick={onOpenAddModal}
+                className="mt-2 text-xs font-semibold text-[#24211D] hover:underline"
+              >
+                + Начать новую книгу
+              </button>
+            ) : (
+              <button
+                onClick={onOpenAuthModal}
+                className="mt-2 text-xs font-semibold text-[#8A5A36] hover:underline"
+              >
+                Войти через Google →
+              </button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -339,7 +350,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
           {recentlyFinished.length === 0 ? (
             <div className="p-6 rounded-md border border-[#E8E2D8] bg-[#F7F4EF] text-center text-xs text-[#7A7265]">
-              Пока нет завершённых книг.
+              {currentUser ? 'Пока нет завершённых книг.' : 'Войдите через Google, чтобы просмотреть свои прочитанные книги.'}
             </div>
           ) : (
             <div className="divide-y divide-[#EFE9DF] border border-[#E8E2D8] rounded-md bg-[#FAF8F5]">

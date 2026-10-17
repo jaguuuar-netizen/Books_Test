@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { User } from 'firebase/auth';
 import { Book, ViewMode, SortField, SortOrder, BookFilter } from '../../types/book';
 import { BookCover } from '../common/BookCover';
 import { formatDateRU } from '../../utils/date';
@@ -14,7 +15,9 @@ import {
   X,
   BookOpen,
   FilterX,
-  Clock
+  Clock,
+  Lock,
+  Cloud
 } from 'lucide-react';
 
 interface LibraryViewProps {
@@ -22,6 +25,8 @@ interface LibraryViewProps {
   onSelectBook: (book: Book) => void;
   onOpenAddModal: () => void;
   genresList: string[];
+  currentUser?: User | null;
+  onOpenAuthModal?: () => void;
 }
 
 export const LibraryView: React.FC<LibraryViewProps> = ({
@@ -29,6 +34,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onSelectBook,
   onOpenAddModal,
   genresList,
+  currentUser,
+  onOpenAuthModal,
 }) => {
   // Persisted view mode: remembers user preference; defaults to 'grid' (плитка) on mobile
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -482,7 +489,46 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       )}
 
       {/* Main Viewport Content according to ViewMode */}
-      {filteredAndSortedBooks.length === 0 ? (
+      {books.length === 0 ? (
+        !currentUser ? (
+          /* Unauthenticated visitor empty state: each reader only sees their own library */
+          <div className="py-16 px-4 text-center border border-dashed border-[#DDD5C7] rounded-md bg-[#F7F4EF] max-w-md mx-auto my-6">
+            <div className="w-12 h-12 rounded-full bg-[#EFE9DF] flex items-center justify-center mx-auto mb-3 text-[#8A5A36]">
+              <Lock className="w-6 h-6" />
+            </div>
+            <h3 className="text-lg font-display font-semibold text-[#24211D]">
+              Личная библиотека
+            </h3>
+            <p className="mt-2 text-xs text-[#6B6357] leading-relaxed">
+              Каждый читатель видит только свои книги. Войдите через Google, чтобы открыть свою персональную библиотеку и синхронизировать её между компьютером и телефоном.
+            </p>
+            <button
+              onClick={onOpenAuthModal}
+              className="mt-5 inline-flex items-center gap-2 px-4 py-2 bg-[#24211D] hover:bg-[#3B342C] text-white rounded-md font-medium text-xs transition-colors shadow-xs"
+            >
+              <Cloud className="w-4 h-4 text-[#EFE9DF]" />
+              <span>Войти через Google</span>
+            </button>
+          </div>
+        ) : (
+          /* Authenticated user empty library */
+          <div className="py-16 text-center border border-dashed border-[#DDD5C7] rounded-md bg-[#F7F4EF]">
+            <BookOpen className="w-8 h-8 mx-auto text-[#8A8172] mb-3" />
+            <h3 className="text-base font-display font-medium text-[#24211D]">
+              В вашей библиотеке пока нет книг
+            </h3>
+            <p className="mt-1 text-xs text-[#6B6357] max-w-sm mx-auto">
+              Нажмите кнопку ниже, чтобы добавить свою первую прочитанную книгу в личную библиотеку.
+            </p>
+            <button
+              onClick={onOpenAddModal}
+              className="mt-4 px-4 py-2 text-xs font-medium text-white bg-[#24211D] hover:bg-[#3B342C] rounded-md transition-colors shadow-xs"
+            >
+              + Добавить первую книгу
+            </button>
+          </div>
+        )
+      ) : filteredAndSortedBooks.length === 0 ? (
         <div className="py-16 text-center border border-dashed border-[#DDD5C7] rounded-md bg-[#F7F4EF]">
           <BookOpen className="w-8 h-8 mx-auto text-[#8A8172] mb-3" />
           <h3 className="text-base font-display font-medium text-[#24211D]">

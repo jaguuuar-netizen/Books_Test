@@ -7,7 +7,7 @@ import {
   setPersistence, 
   browserLocalPersistence 
 } from 'firebase/auth';
-import { auth, googleProvider, setCachedAccessToken } from '../../services/firebase';
+import { auth, googleProvider, setCachedAccessToken, clearAccessToken } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
 import { Book } from '../../types/book';
 import { 
@@ -95,6 +95,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (typeof window !== 'undefined') {
         localStorage.removeItem('my_book_shelf_has_authenticated');
       }
+      clearAccessToken();
       await signOut(auth);
     } catch (err: any) {
       console.error('Sign out error:', err);

@@ -84,23 +84,45 @@ class StorageService {
     return this.dbPromise;
   }
 
+  private currentUserId: string | null = null;
+
+  setUserId(userId: string | null): void {
+    this.currentUserId = userId ? String(userId).trim() : null;
+  }
+
+  getUserId(): string | null {
+    return this.currentUserId;
+  }
+
   // --- Seeding Check ---
   isSeeded(): boolean {
+    if (!this.currentUserId) return false;
     try {
-      return localStorage.getItem('my_book_shelf_seeded') === 'true';
+      return localStorage.getItem(`my_book_shelf_seeded_${this.currentUserId}`) === 'true';
     } catch {
       return false;
     }
   }
 
   setSeeded(value = true): void {
+    if (!this.currentUserId) return;
     try {
-      localStorage.setItem('my_book_shelf_seeded', value ? 'true' : 'false');
+      localStorage.setItem(`my_book_shelf_seeded_${this.currentUserId}`, value ? 'true' : 'false');
     } catch {}
+  }
+
+  private getStorageKey(): string | null {
+    if (!this.currentUserId) return null;
+    return `my_book_shelf_books_${this.currentUserId}`;
   }
 
   // --- Books ---
   async getBooks(): Promise<Book[]> {
+    // Strict isolation: Unauthenticated users have no local library
+    if (!this.currentUserId) {
+      return [];
+    }
+
     const fallback = this.getBooksFallback();
     const db = await this.openDB();
 
@@ -111,7 +133,12 @@ class StorageService {
             const tx = db.transaction(BOOKS_STORE, 'readonly');
             const store = tx.objectStore(BOOKS_STORE);
             const req = store.getAll();
-            req.onsuccess = () => resolve(req.result || []);
+            req.onsuccess = () => {
+              const all = (req.result || []) as Book[];
+              // Filter strictly to current user's documents
+              const userOnly = all.filter((b) => b.userId === this.currentUserId);
+              resolve(userOnly);
+            };
             req.onerror = () => resolve([]);
           } catch {
             resolve([]);
@@ -119,7 +146,6 @@ class StorageService {
         });
 
         if (idbBooks && idbBooks.length > 0) {
-          // Sync to localStorage
           this.saveBooksToLocalStorage(idbBooks);
           return idbBooks;
         }
@@ -132,8 +158,10 @@ class StorageService {
   }
 
   private getBooksFallback(): Book[] {
+    const key = this.getStorageKey();
+    if (!key) return [];
     try {
-      const data = localStorage.getItem('my_book_shelf_books');
+      const data = localStorage.getItem(key);
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
@@ -141,8 +169,10 @@ class StorageService {
   }
 
   private saveBooksToLocalStorage(books: Book[]): void {
+    const key = this.getStorageKey();
+    if (!key) return;
     try {
-      localStorage.setItem('my_book_shelf_books', JSON.stringify(books));
+      localStorage.setItem(key, JSON.stringify(books));
     } catch (e) {
       // If localStorage quota exceeded due to large base64 covers, store slim version
       try {
@@ -152,7 +182,7 @@ class StorageService {
           }
           return b;
         });
-        localStorage.setItem('my_book_shelf_books', JSON.stringify(slim));
+        localStorage.setItem(key, JSON.stringify(slim));
       } catch (err) {
         console.warn('Failed to save to localStorage:', err);
       }
@@ -214,15 +244,25 @@ class StorageService {
     this.setSeeded(true);
 
     const db = await this.openDB();
-    if (db && this.isIndexedDBAvailable) {
+    if (db && this.isIndexedDBAvailable && this.currentUserId) {
       await new Promise<void>((resolve) => {
         try {
           const tx = db.transaction(BOOKS_STORE, 'readwrite');
           const store = tx.objectStore(BOOKS_STORE);
-          store.clear();
-          for (const b of books) {
-            store.put(b);
-          }
+          const req = store.getAll();
+          req.onsuccess = () => {
+            const all = (req.result || []) as Book[];
+            // Remove previous books for current user only
+            for (const item of all) {
+              if (item.userId === this.currentUserId || !item.userId) {
+                store.delete(item.id);
+              }
+            }
+            // Put updated books
+            for (const b of books) {
+              store.put({ ...b, userId: this.currentUserId });
+            }
+          };
           tx.oncomplete = () => resolve();
           tx.onerror = () => resolve();
         } catch {
@@ -324,3 +364,10 @@ class StorageService {
 }
 
 export const storageService = new StorageService();
+
+// Clean up legacy non-user-scoped storage key to ensure complete per-user isolation
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('my_book_shelf_books');
+  } catch {}
+}
