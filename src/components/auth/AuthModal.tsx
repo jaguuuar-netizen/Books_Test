@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { User, signInWithPopup, signOut, GoogleAuthProvider } from 'firebase/auth';
+import { 
+  User, 
+  signInWithPopup, 
+  signOut, 
+  GoogleAuthProvider, 
+  setPersistence, 
+  browserLocalPersistence 
+} from 'firebase/auth';
 import { auth, googleProvider, setCachedAccessToken } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
 import { Book } from '../../types/book';
@@ -53,10 +60,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage('');
     setIsUnauthorizedDomain(false);
     try {
+      // Force localStorage persistence on mobile browsers before popup
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch (pErr) {
+        console.warn('Set persistence prior to sign in:', pErr);
+      }
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setCachedAccessToken(credential.accessToken);
+      }
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('my_book_shelf_has_authenticated', 'true');
       }
       // Data synchronization is handled reactively by subscribeToCloudBooks
     } catch (err: any) {
@@ -76,6 +92,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSignOut = async () => {
     try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('my_book_shelf_has_authenticated');
+      }
       await signOut(auth);
     } catch (err: any) {
       console.error('Sign out error:', err);

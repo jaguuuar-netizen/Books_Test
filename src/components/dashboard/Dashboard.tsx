@@ -15,6 +15,7 @@ interface DashboardProps {
   onLoadDemo: () => void;
   currentUser?: User | null;
   onOpenAuthModal?: () => void;
+  isAuthReady?: boolean;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -26,6 +27,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onLoadDemo,
   currentUser,
   onOpenAuthModal,
+  isAuthReady = true,
 }) => {
   const currentYear = new Date().getFullYear();
 
@@ -130,8 +132,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       </div>
 
-      {/* Read-Only Banner for Unauthenticated Visitors */}
-      {!currentUser && (
+      {/* Read-Only Banner for Unauthenticated Visitors (only once auth initialization completes) */}
+      {!currentUser && isAuthReady && (
         <div className="bg-[#FFF8E7] border border-[#E8DFCF] rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5C4828]">
           <div className="flex items-start sm:items-center gap-2.5">
             <Lock className="w-4 h-4 text-[#8A5A36] shrink-0 mt-0.5 sm:mt-0" />
@@ -182,10 +184,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </span>
         </div>
 
-        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between">
-          <span className="text-xs text-[#7A7265] uppercase tracking-wider font-sans">Часов чтения</span>
-          <span className="text-2xl sm:text-3xl font-semibold text-[#24211D] font-mono tabular-nums mt-2">
-            {totalHours} ч.
+        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between shadow-2xs">
+          <span className="text-xs font-semibold text-[#8A5A36] uppercase tracking-wider font-sans flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#8A5A36] shrink-0" />
+            <span>Часов чтения</span>
+          </span>
+          <span className="text-2xl sm:text-3xl font-bold text-[#24211D] font-mono tabular-nums mt-2">
+            {totalHours} <span className="text-sm font-sans font-medium text-[#7A7265]">ч.</span>
           </span>
         </div>
 
@@ -269,19 +274,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       </p>
 
                       {/* Metadata without static pills */}
-                      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-[#8A8172] mt-2 font-mono tabular-nums">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6357] mt-2 font-mono tabular-nums">
                         {book.pages && <span>{book.pages} стр.</span>}
                         {book.readingHours ? (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{book.readingHours} ч.</span>
-                          </>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#F0EBE1] text-[#3D2C1E] font-semibold text-xs font-mono border border-[#E0D8CB]">
+                            <Clock className="w-3.5 h-3.5 text-[#8A5A36]" />
+                            {book.readingHours} ч.
+                          </span>
                         ) : null}
                         {daysReading > 0 && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span>{daysReading} дн. в процессе</span>
-                          </>
+                          <span className="text-[11px] text-[#7A7265]">
+                            · {daysReading} дн. в процессе
+                          </span>
                         )}
                       </div>
                     </div>
@@ -364,7 +368,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       {book.authors.join(', ')}
                     </p>
 
-                    <div className="flex items-center gap-2 text-[11px] text-[#8A8172] mt-1 font-mono tabular-nums">
+                    <div className="flex flex-wrap items-center gap-2 text-xs text-[#6B6357] mt-1 font-mono tabular-nums">
                       {book.endDate && (
                         <span>
                           {formatLongDateRU(book.endDate)}
@@ -372,16 +376,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       )}
                       {book.pages && (
                         <>
-                          <span aria-hidden="true">·</span>
+                          <span aria-hidden="true" className="text-[#DDD5C7]">·</span>
                           <span>{book.pages} стр.</span>
                         </>
                       )}
-                      {book.readingHours && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>{book.readingHours} ч.</span>
-                        </>
-                      )}
+                      {book.readingHours ? (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#3D2C1E] font-mono bg-[#EFE9DF] px-2 py-0.5 rounded border border-[#E0D8CB]">
+                          <Clock className="w-3.5 h-3.5 text-[#8A5A36]" />
+                          {book.readingHours} ч.
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 </div>

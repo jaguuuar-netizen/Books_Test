@@ -13,7 +13,8 @@ import {
   Plus, 
   X,
   BookOpen,
-  FilterX
+  FilterX,
+  Clock
 } from 'lucide-react';
 
 interface LibraryViewProps {
@@ -29,7 +30,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenAddModal,
   genresList,
 }) => {
-  const [viewMode, setViewMode] = useState<ViewMode>('shelf');
+  // Persisted view mode: remembers user preference; defaults to 'grid' (плитка) on mobile
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('my_book_shelf_view_mode') as ViewMode | null;
+        if (saved && (saved === 'shelf' || saved === 'grid' || saved === 'list')) {
+          return saved;
+        }
+        // Mobile screens: default to 'grid' (плитка без пролистывания)
+        if (window.innerWidth < 768) {
+          return 'grid';
+        }
+      } catch {}
+    }
+    return 'shelf';
+  });
+
+  const handleSetViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem('my_book_shelf_view_mode', mode);
+      } catch {}
+    }
+  };
   const [activeTab, setActiveTab] = useState<'all' | 'reading' | 'completed'>('all');
   const [showFilters, setShowFilters] = useState(false);
 
@@ -226,37 +251,40 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         {/* View Mode Switcher (Shelf, Grid, List) */}
         <div className="flex items-center gap-1 p-1 bg-[#EFE9DF] rounded-md shrink-0">
           <button
-            onClick={() => setViewMode('shelf')}
-            title="Книжная полка"
-            className={`p-1.5 rounded transition-colors ${
+            onClick={() => handleSetViewMode('shelf')}
+            title="Книжная полка на деревянных ярусах"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
               viewMode === 'shelf'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-medium'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-xs font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >
-            <BookOpen className="w-4 h-4" />
+            <BookOpen className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Полка</span>
           </button>
           <button
-            onClick={() => setViewMode('grid')}
-            title="Компактная сетка"
-            className={`p-1.5 rounded transition-colors ${
+            onClick={() => handleSetViewMode('grid')}
+            title="Плитка (компактная сетка без пролистывания)"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
               viewMode === 'grid'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-medium'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-xs font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >
-            <Grid className="w-4 h-4" />
+            <Grid className="w-3.5 h-3.5" />
+            <span>Плитка</span>
           </button>
           <button
-            onClick={() => setViewMode('list')}
-            title="Список"
-            className={`p-1.5 rounded transition-colors ${
+            onClick={() => handleSetViewMode('list')}
+            title="Табличный список"
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors ${
               viewMode === 'list'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-medium'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-xs font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >
-            <List className="w-4 h-4" />
+            <List className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Список</span>
           </button>
         </div>
       </div>
@@ -474,25 +502,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         </div>
       ) : viewMode === 'shelf' ? (
         /* MODE 1: Physical Bookshelf with Wooden Planks & Depth */
-        <div className="space-y-12 py-4">
+        <div className="space-y-10 py-4">
           {shelves.map((shelf, shelfIdx) => (
             <div key={shelfIdx} className="relative">
-              {/* Books on the shelf */}
-              <div className="flex items-end justify-start gap-4 sm:gap-6 md:gap-8 px-4 sm:px-8 overflow-x-auto pb-1 pt-4">
+              {/* Books on the shelf: wraps responsively or scrolls neatly with high-contrast hours */}
+              <div className="flex items-end justify-start flex-wrap sm:flex-nowrap gap-3 sm:gap-6 md:gap-8 px-2 sm:px-8 pb-1 pt-4">
                 {shelf.map((book) => (
                   <div
                     key={book.id}
                     onClick={() => onSelectBook(book)}
-                    className="cursor-pointer group flex flex-col items-center shrink-0 w-28 sm:w-32 transition-transform duration-200"
+                    className="cursor-pointer group flex flex-col items-center shrink-0 w-24 sm:w-32 transition-transform duration-200"
                   >
                     <div className="relative">
                       <BookCover book={book} size="md" className="group-hover:scale-105 transition-transform" />
                       {book.rating && (
-                        <div className="absolute top-1 right-1 bg-[#24211D]/90 text-amber-200 text-[10px] font-mono px-1 py-0.5 rounded shadow flex items-center gap-0.5 tabular-nums">
+                        <div className="absolute top-1 right-1 bg-[#24211D]/90 text-amber-200 text-[10px] font-mono px-1 py-0.5 rounded shadow-xs flex items-center gap-0.5 tabular-nums">
                           <Star className="w-2.5 h-2.5 fill-amber-300 text-amber-300" />
                           <span>{book.rating}</span>
                         </div>
                       )}
+                      {book.readingHours ? (
+                        <div className="absolute top-1 left-1 bg-[#24211D]/90 text-amber-100 text-[10px] font-mono px-1 py-0.5 rounded shadow-xs flex items-center gap-1 tabular-nums">
+                          <Clock className="w-2.5 h-2.5 text-amber-300" />
+                          <span>{book.readingHours}ч</span>
+                        </div>
+                      ) : null}
                     </div>
 
                     <div className="mt-2 text-center w-full px-1">
@@ -502,30 +536,42 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       <p className="text-[10px] text-[#7A7265] truncate">
                         {book.authors[0]}
                       </p>
+                      {book.readingHours ? (
+                        <div className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-mono font-medium text-[#4A3828] bg-[#EFE9DF] px-1 py-0.2 rounded">
+                          <Clock className="w-2.5 h-2.5 text-[#8A5A36]" />
+                          <span>{book.readingHours} ч.</span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 ))}
               </div>
 
               {/* Wooden Shelf Board underneath */}
-              <div className="w-full h-4 sm:h-5 shelf-wood rounded-sm relative mt-1" />
+              <div className="w-full h-4 sm:h-5 shelf-wood rounded-sm relative mt-1 shadow-xs" />
             </div>
           ))}
         </div>
       ) : viewMode === 'grid' ? (
-        /* MODE 2: Compact High-Density Grid */
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 sm:gap-6">
+        /* MODE 2: Compact High-Density Grid (Плитка без пролистывания) */
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-6">
           {filteredAndSortedBooks.map((book) => (
             <div
               key={book.id}
               onClick={() => onSelectBook(book)}
-              className="group cursor-pointer bg-[#FAF8F5] border border-[#E8E2D8] hover:border-[#D1C7B7] rounded-md p-3 flex flex-col justify-between transition-all"
+              className="group cursor-pointer bg-[#FAF8F5] border border-[#E8E2D8] hover:border-[#D1C7B7] rounded-md p-2.5 sm:p-3 flex flex-col justify-between transition-all shadow-2xs"
             >
-              <div className="mx-auto">
+              <div className="mx-auto relative">
                 <BookCover book={book} size="md" />
+                {book.readingHours ? (
+                  <div className="absolute top-1 left-1 bg-[#24211D]/90 text-amber-100 text-[10px] font-mono px-1.5 py-0.5 rounded shadow-xs flex items-center gap-1 tabular-nums">
+                    <Clock className="w-2.5 h-2.5 text-amber-300" />
+                    <span>{book.readingHours} ч.</span>
+                  </div>
+                ) : null}
               </div>
 
-              <div className="mt-3 text-center">
+              <div className="mt-2.5 text-center">
                 <div className="flex items-center justify-center gap-1 text-[11px] text-[#8A5A36] font-mono tabular-nums mb-1">
                   {book.rating ? (
                     <>
@@ -544,13 +590,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   {book.authors.join(', ')}
                 </p>
 
-                <div className="mt-2 pt-2 border-t border-[#EFE9DF] text-[10px] text-[#8A8172] font-mono tabular-nums flex items-center justify-center gap-1.5">
+                <div className="mt-2 pt-2 border-t border-[#EFE9DF] text-[11px] text-[#6B6357] font-mono tabular-nums flex items-center justify-center gap-1.5 flex-wrap">
                   {book.pages && <span>{book.pages} стр.</span>}
-                  {book.publishYear && (
-                    <>
-                      <span aria-hidden="true">·</span>
-                      <span>{book.publishYear} г.</span>
-                    </>
+                  {book.readingHours ? (
+                    <span className="inline-flex items-center gap-1 font-semibold text-[#3D2C1E] bg-[#EFE9DF] px-1.5 py-0.5 rounded border border-[#E2D9CC]">
+                      <Clock className="w-3 h-3 text-[#8A5A36]" />
+                      {book.readingHours} ч.
+                    </span>
+                  ) : null}
+                  {book.publishYear && !book.readingHours && (
+                    <span>{book.publishYear} г.</span>
                   )}
                 </div>
               </div>

@@ -1,5 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, User } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut, 
+  User, 
+  setPersistence, 
+  browserLocalPersistence, 
+  indexedDBLocalPersistence 
+} from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
@@ -12,18 +21,29 @@ export const db = initializeFirestore(app, {
 }, (firebaseConfig as any).firestoreDatabaseId);
 
 export const auth = getAuth(app);
+
+// Enforce browserLocalPersistence (localStorage) so user authentication
+// and sync do not drop when mobile browser tabs are closed, refreshed, or backgrounded.
+try {
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn('Firebase setPersistence notice:', err);
+  });
+} catch (e) {
+  console.warn('Could not set persistence synchronously:', e);
+}
+
 export const googleProvider = new GoogleAuthProvider();
 
 export const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 googleProvider.addScope(SPREADSHEETS_SCOPE);
 
-// Session-scoped token cache
+// Persistent token cache using localStorage (survives mobile browser restarts)
 let cachedAccessToken: string | null = null;
 
 export const getAccessToken = async (): Promise<string | null> => {
   if (!cachedAccessToken && typeof window !== 'undefined') {
     try {
-      cachedAccessToken = sessionStorage.getItem('g_oauth_token');
+      cachedAccessToken = localStorage.getItem('g_oauth_token');
     } catch {
       // Ignore storage access error
     }
@@ -36,9 +56,9 @@ export const setCachedAccessToken = (token: string | null) => {
   if (typeof window !== 'undefined') {
     try {
       if (token) {
-        sessionStorage.setItem('g_oauth_token', token);
+        localStorage.setItem('g_oauth_token', token);
       } else {
-        sessionStorage.removeItem('g_oauth_token');
+        localStorage.removeItem('g_oauth_token');
       }
     } catch {
       // Ignore storage access error
@@ -50,7 +70,7 @@ export const clearAccessToken = () => {
   cachedAccessToken = null;
   if (typeof window !== 'undefined') {
     try {
-      sessionStorage.removeItem('g_oauth_token');
+      localStorage.removeItem('g_oauth_token');
     } catch {
       // Ignore
     }

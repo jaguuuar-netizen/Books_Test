@@ -171,30 +171,32 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
               {/* Meta Grid */}
               <div className="grid grid-cols-2 gap-3 pt-3 border-t border-[#EFE9DF] text-xs">
-                <div>
+                <div className="bg-[#FAF8F5] p-2 rounded border border-[#E8E2D8]">
                   <span className="text-[#8A8172] block text-[11px]">Страниц:</span>
-                  <span className="font-mono tabular-nums font-medium text-[#24211D]">
+                  <span className="font-mono tabular-nums font-semibold text-sm text-[#24211D]">
                     {book.pages ? `${book.pages} стр.` : '—'}
                   </span>
                 </div>
 
-                <div>
-                  <span className="text-[#8A8172] block text-[11px]">Время чтения:</span>
-                  <span className="font-mono tabular-nums font-medium text-[#24211D]">
+                <div className="bg-[#FAF8F5] p-2 rounded border border-[#E8E2D8]">
+                  <span className="text-[#8A5A36] font-medium flex items-center gap-1 text-[11px]">
+                    <Clock className="w-3 h-3 text-[#8A5A36]" /> Время чтения:
+                  </span>
+                  <span className="font-mono tabular-nums font-bold text-sm text-[#24211D]">
                     {book.readingHours ? `${book.readingHours} ч.` : '—'}
                   </span>
                 </div>
 
-                <div>
+                <div className="bg-[#FAF8F5] p-2 rounded border border-[#E8E2D8]">
                   <span className="text-[#8A8172] block text-[11px]">Начало:</span>
-                  <span className="font-mono tabular-nums text-[#24211D]">
+                  <span className="font-mono tabular-nums text-xs text-[#24211D]">
                     {formatDateRU(book.startDate)}
                   </span>
                 </div>
 
-                <div>
+                <div className="bg-[#FAF8F5] p-2 rounded border border-[#E8E2D8]">
                   <span className="text-[#8A8172] block text-[11px]">Окончание:</span>
-                  <span className="font-mono tabular-nums text-[#24211D]">
+                  <span className="font-mono tabular-nums text-xs text-[#24211D]">
                     {formatDateRU(book.endDate)}
                   </span>
                 </div>

@@ -335,10 +335,12 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </span>
         </div>
 
-        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between">
-          <span className="text-[11px] text-[#7A7265] uppercase tracking-wider">Часов чтения</span>
-          <span className="text-2xl sm:text-3xl font-semibold font-mono tabular-nums text-[#24211D] mt-2">
-            {totalHours} ч.
+        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between shadow-2xs">
+          <span className="text-[11px] font-semibold text-[#8A5A36] uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#8A5A36]" /> Часов чтения
+          </span>
+          <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-[#24211D] mt-2">
+            {totalHours} <span className="text-sm font-sans font-medium text-[#7A7265]">ч.</span>
           </span>
         </div>
 
@@ -356,10 +358,12 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </span>
         </div>
 
-        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between">
-          <span className="text-[11px] text-[#7A7265] uppercase tracking-wider">Часов на книгу</span>
-          <span className="text-2xl sm:text-3xl font-semibold font-mono tabular-nums text-[#24211D] mt-2">
-            {avgHoursPerBook} ч.
+        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md p-4 flex flex-col justify-between shadow-2xs">
+          <span className="text-[11px] font-semibold text-[#8A5A36] uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-[#8A5A36]" /> Часов на книгу
+          </span>
+          <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-[#24211D] mt-2">
+            {avgHoursPerBook} <span className="text-sm font-sans font-medium text-[#7A7265]">ч.</span>
           </span>
         </div>
 

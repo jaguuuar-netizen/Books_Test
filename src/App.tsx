@@ -42,6 +42,7 @@ export default function App() {
   const [genres, setGenres] = useState<string[]>(DEFAULT_GENRES);
   const [isLoading, setIsLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig | null>(() => loadGoogleSheetsConfig());
@@ -104,8 +105,12 @@ export default function App() {
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
+      setIsAuthReady(true);
 
       if (user) {
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('my_book_shelf_has_authenticated', 'true');
+        }
         setIsSyncing(true);
 
         // A. Bidirectional real-time listener for books
@@ -166,7 +171,7 @@ export default function App() {
         });
 
       } else {
-        // User logged out: unsubscribe and clear private user data from memory/storage
+        // User logged out or disconnected: unsubscribe cloud listeners
         if (unsubBooks) {
           unsubBooks();
           unsubBooks = null;
@@ -177,8 +182,7 @@ export default function App() {
         }
         setIsSyncing(false);
         setLastSyncedAt(null);
-        setBooks([]);
-        storageService.setAllBooks([]);
+        // Do not wipe cached books while offline or reconnecting; preserves data across tabs
       }
     });
 
@@ -582,6 +586,7 @@ export default function App() {
             onLoadDemo={handleResetToDemo}
             currentUser={currentUser}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            isAuthReady={isAuthReady}
           />
         )}
 
