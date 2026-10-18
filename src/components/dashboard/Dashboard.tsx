@@ -76,7 +76,33 @@ export const Dashboard: React.FC<DashboardProps> = ({
       books: yearCountsMap[year],
     }));
 
-  // Empty state handling
+  // Strict User Privacy: Unauthenticated users never see another user's books or workspace
+  if (!currentUser) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24 text-center">
+        <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-[#EFE9DF] flex items-center justify-center text-[#8A5A36] shadow-inner">
+          <Lock className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl sm:text-3xl font-display font-semibold text-[#24211D]">
+          Личный читательский дневник
+        </h2>
+        <p className="mt-3 text-base text-[#6B6357] max-w-lg mx-auto leading-relaxed">
+          Каждый пользователь видит только свою библиотеку. Войдите через Google, чтобы открыть ваш персональный каталог книг, книжный шкаф и читательскую статистику.
+        </p>
+        <div className="mt-8 flex items-center justify-center">
+          <button
+            onClick={onOpenAuthModal}
+            className="inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold text-[#FAF8F5] bg-[#24211D] rounded-md hover:bg-[#3B342C] transition-colors shadow-sm"
+          >
+            <Cloud className="w-4 h-4 text-[#EFE9DF]" />
+            <span>Войти через Google</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated user with empty library
   if (totalBooks === 0) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-16 sm:py-24 text-center">
@@ -98,13 +124,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             Добавить первую книгу
           </button>
           <button
-            onClick={() => {
-              if (!currentUser) {
-                onOpenAuthModal?.();
-                return;
-              }
-              onLoadDemo();
-            }}
+            onClick={onLoadDemo}
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-medium text-[#24211D] bg-[#EFE9DF] rounded-md hover:bg-[#E4DCCE] transition-colors"
           >
             <Sparkles className="w-4 h-4 text-[#8A5A36]" />
@@ -131,28 +151,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
           Срез на {new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
         </div>
       </div>
-
-      {/* Read-Only Banner for Unauthenticated Visitors (only once auth initialization completes) */}
-      {!currentUser && isAuthReady && (
-        <div className="bg-[#FFF8E7] border border-[#E8DFCF] rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#5C4828]">
-          <div className="flex items-start sm:items-center gap-2.5">
-            <Lock className="w-4 h-4 text-[#8A5A36] shrink-0 mt-0.5 sm:mt-0" />
-            <div>
-              <span className="font-semibold text-[#24211D]">Книжная полка работает в режиме предварительного просмотра.</span>
-              <p className="text-[11px] text-[#6B5A42] mt-0.5">
-                Чтобы добавлять книги, сохранять прочитанное в облако и смотреть персональную статистику, авторизуйтесь через Google.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onOpenAuthModal}
-            className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shrink-0 shadow-xs"
-          >
-            <Cloud className="w-3.5 h-3.5 text-[#EFE9DF]" />
-            <span>Подключить Google Облако</span>
-          </button>
-        </div>
-      )}
 
       {/* Primary KPI Strips - Anti-slop, clean typography, tabular figures */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-4">

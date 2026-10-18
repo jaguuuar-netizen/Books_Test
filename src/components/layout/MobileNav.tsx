@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, BookOpen, BarChart3, Calendar, Tag, Database } from 'lucide-react';
+import { Home, BookOpen, Library, BarChart3, Calendar, Tag, Database } from 'lucide-react';
 import { NavTab } from './Header';
 
 interface MobileNavProps {
@@ -14,26 +14,37 @@ export const MobileNav: React.FC<MobileNavProps> = ({
   onOpenSettingsModal,
 }) => {
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-t border-[#E8E2D8] px-2 py-1 safe-area-pb">
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-t border-[#E8E2D8] px-1 py-1 safe-area-pb">
       <div className="flex items-center justify-around h-14">
         <button
           onClick={() => onSelectTab('dashboard')}
-          className={`flex flex-col items-center justify-center min-w-[48px] py-1 px-1 transition-colors ${
+          className={`flex flex-col items-center justify-center min-w-[40px] py-1 px-0.5 transition-colors ${
             currentTab === 'dashboard' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
           }`}
         >
-          <Home className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] whitespace-nowrap">Главная</span>
+          <Home className="w-4 h-4 mb-0.5" />
+          <span className="text-[9px] whitespace-nowrap">Главная</span>
         </button>
 
         <button
           onClick={() => onSelectTab('shelf')}
-          className={`flex flex-col items-center justify-center min-w-[48px] py-1 px-1 transition-colors ${
+          className={`flex flex-col items-center justify-center min-w-[40px] py-1 px-0.5 transition-colors ${
             currentTab === 'shelf' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
           }`}
         >
-          <BookOpen className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] whitespace-nowrap">Полка</span>
+          <BookOpen className="w-4 h-4 mb-0.5" />
+          <span className="text-[9px] whitespace-nowrap">Полка</span>
+        </button>
+
+        <button
+          onClick={() => onSelectTab('spines')}
+          className={`flex flex-col items-center justify-center min-w-[40px] py-1 px-0.5 transition-colors ${
+            currentTab === 'spines' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
+          }`}
+          title="Полка с корешками"
+        >
+          <Library className="w-4 h-4 mb-0.5" />
+          <span className="text-[9px] whitespace-nowrap">Корешки</span>
         </button>
 
         <button

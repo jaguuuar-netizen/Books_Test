@@ -1,11 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { 
-  getAuth, 
+  initializeAuth,
+  getAuth,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
   User, 
-  setPersistence, 
   browserLocalPersistence, 
   indexedDBLocalPersistence 
 } from 'firebase/auth';
@@ -20,22 +20,38 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-export const auth = getAuth(app);
-
-// Enforce browserLocalPersistence (localStorage) so user authentication
-// and sync do not drop when mobile browser tabs are closed, refreshed, or backgrounded.
+// Initialize Firebase Auth with browserLocalPersistence (localStorage) as primary,
+// with indexedDBLocalPersistence as fallback. This guarantees that user authentication
+// and sync NEVER drop when mobile browser tabs are closed, refreshed, or backgrounded.
+let authInstance: any;
 try {
-  setPersistence(auth, browserLocalPersistence).catch((err) => {
-    console.warn('Firebase setPersistence notice:', err);
+  authInstance = initializeAuth(app, {
+    persistence: [browserLocalPersistence, indexedDBLocalPersistence],
   });
-} catch (e) {
-  console.warn('Could not set persistence synchronously:', e);
+} catch (e: any) {
+  // If already initialized (e.g. during Vite HMR/reload)
+  authInstance = getAuth(app);
 }
+export const auth = authInstance;
 
+// Clean standard Google provider: requests standard profile/email identity only.
+// NEVER attach unverified Workspace scopes here, because Google revokes unverified scopes
+// and prematurely drops the user's refresh token.
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
 
+// Dedicated Google Sheets provider for optional Google Sheets export in settings
 export const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
-googleProvider.addScope(SPREADSHEETS_SCOPE);
+export const getSheetsGoogleProvider = (): GoogleAuthProvider => {
+  const p = new GoogleAuthProvider();
+  p.addScope(SPREADSHEETS_SCOPE);
+  p.setCustomParameters({
+    prompt: 'consent',
+  });
+  return p;
+};
 
 // Persistent token cache using localStorage (survives mobile browser restarts)
 let cachedAccessToken: string | null = null;
@@ -77,23 +93,17 @@ export const clearAccessToken = () => {
   }
 };
 
-// Clear cached token on sign-out
-auth.onAuthStateChanged((user) => {
-  if (!user) {
-    clearAccessToken();
-  }
-});
-
 // Request or refresh OAuth access token with Google Sheets scope
 export const requestGoogleAccessToken = async (): Promise<string> => {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
+    const sheetsProvider = getSheetsGoogleProvider();
+    const result = await signInWithPopup(auth, sheetsProvider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Не удалось получить токен доступа Google. Пожалуйста, разрешите доступ к Google Таблицам.');
     }
-    cachedAccessToken = credential.accessToken;
-    return cachedAccessToken;
+    setCachedAccessToken(credential.accessToken);
+    return credential.accessToken;
   } catch (err: any) {
     console.error('Failed to request Google access token:', err);
     throw err;

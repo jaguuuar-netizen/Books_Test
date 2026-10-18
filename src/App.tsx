@@ -35,13 +35,14 @@ import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { StatisticsAuthGate } from './components/statistics/StatisticsAuthGate';
+import { BookSpinesView } from './components/bookcase/BookSpinesView';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [books, setBooks] = useState<Book[]>([]);
   const [genres, setGenres] = useState<string[]>(DEFAULT_GENRES);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
   const [isAuthReady, setIsAuthReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
@@ -58,10 +59,17 @@ export default function App() {
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // 1. Initialize local cache on mount (only global settings/genres; books are loaded per authenticated user)
+  // 1. Initialize local cache on mount
   useEffect(() => {
     async function loadData() {
       try {
+        if (auth.currentUser) {
+          storageService.setUserId(auth.currentUser.uid);
+          const cached = await storageService.getBooks();
+          if (cached && cached.length > 0) {
+            setBooks(cached);
+          }
+        }
         const storedGenres = await storageService.getGenres();
         if (storedGenres && storedGenres.length > 0) {
           setGenres(storedGenres);
@@ -73,6 +81,14 @@ export default function App() {
       }
     }
     loadData();
+  }, []);
+
+  // Safety timeout: ensure auth check never hangs indefinitely on offline/slow mobile networks
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAuthReady(true);
+    }, 2500);
+    return () => clearTimeout(timer);
   }, []);
 
   // Safety watchdog: ensure isSyncing never gets stuck spinning indefinitely
@@ -529,7 +545,22 @@ export default function App() {
     }
   };
 
-  if (isLoading) {
+  const handleExplicitSignOut = () => {
+    storageService.setUserId(null);
+    setBooks([]);
+    setSelectedBook(null);
+    setCurrentUser(null);
+    setIsSyncing(false);
+    setLastSyncedAt(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('my_book_shelf_has_authenticated');
+    }
+  };
+
+  // Absolute privacy boundary: unauthenticated readers cannot see another user's books
+  const visibleBooks = currentUser ? books : [];
+
+  if (isLoading || !isAuthReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FAF8F5] text-[#24211D]">
         <div className="text-center space-y-3">
@@ -562,7 +593,7 @@ export default function App() {
       <main className="flex-1">
         {currentTab === 'dashboard' && (
           <Dashboard
-            books={books}
+            books={visibleBooks}
             onOpenAddModal={handleOpenAddModal}
             onSelectBook={(book) => setSelectedBook(book)}
             onGoToShelf={() => setCurrentTab('shelf')}
@@ -576,7 +607,7 @@ export default function App() {
 
         {currentTab === 'shelf' && (
           <LibraryView
-            books={books}
+            books={visibleBooks}
             onSelectBook={(book) => setSelectedBook(book)}
             onOpenAddModal={handleOpenAddModal}
             genresList={genres}
@@ -585,34 +616,93 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'statistics' && (
-          <StatisticsView
-            books={books}
+        {currentTab === 'spines' && (
+          <BookSpinesView
+            books={visibleBooks}
             onSelectBook={(book) => setSelectedBook(book)}
-            onMergeAuthors={handleMergeAuthors}
-          />
-        )}
-
-        {currentTab === 'calendar' && (
-          <CalendarView
-            books={books}
-            onSelectBook={(book) => setSelectedBook(book)}
-          />
-        )}
-
-        {currentTab === 'genres' && (
-          <GenresView
-            genres={genres}
-            books={books}
-            onAddGenre={handleAddGenre}
-            onEditGenre={handleEditGenre}
-            onDeleteGenre={handleDeleteGenre}
-            onSelectGenre={(_genre) => {
-              setCurrentTab('shelf');
-            }}
+            onOpenAddModal={handleOpenAddModal}
             currentUser={currentUser}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
           />
+        )}
+
+        {currentTab === 'statistics' && (
+          !currentUser ? (
+            <StatisticsAuthGate
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+              onGoToShelf={() => setCurrentTab('shelf')}
+            />
+          ) : (
+            <StatisticsView
+              books={visibleBooks}
+              onSelectBook={(book) => setSelectedBook(book)}
+              onMergeAuthors={handleMergeAuthors}
+            />
+          )
+        )}
+
+        {currentTab === 'calendar' && (
+          !currentUser ? (
+            <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#EFE9DF] flex items-center justify-center text-[#8A5A36] shadow-inner">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-display font-semibold text-[#24211D]">
+                Календарь чтения
+              </h3>
+              <p className="mt-2 text-xs text-[#6B6357] max-w-sm mx-auto leading-relaxed">
+                Каждый читатель видит только свои записи. Войдите через Google, чтобы открыть персональный календарь завершения книг.
+              </p>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded-md font-medium text-xs transition-colors shadow-xs"
+              >
+                <Cloud className="w-4 h-4 text-[#EFE9DF]" />
+                <span>Войти через Google</span>
+              </button>
+            </div>
+          ) : (
+            <CalendarView
+              books={visibleBooks}
+              onSelectBook={(book) => setSelectedBook(book)}
+            />
+          )
+        )}
+
+        {currentTab === 'genres' && (
+          !currentUser ? (
+            <div className="max-w-4xl mx-auto px-4 py-16 text-center">
+              <div className="w-14 h-14 mx-auto mb-4 rounded-2xl bg-[#EFE9DF] flex items-center justify-center text-[#8A5A36] shadow-inner">
+                <Lock className="w-7 h-7" />
+              </div>
+              <h3 className="text-xl font-display font-semibold text-[#24211D]">
+                Управление жанрами
+              </h3>
+              <p className="mt-2 text-xs text-[#6B6357] max-w-sm mx-auto leading-relaxed">
+                Войдите через Google, чтобы управлять персональным списком жанров и синхронизировать его с облаком.
+              </p>
+              <button
+                onClick={() => setIsAuthModalOpen(true)}
+                className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded-md font-medium text-xs transition-colors shadow-xs"
+              >
+                <Cloud className="w-4 h-4 text-[#EFE9DF]" />
+                <span>Войти через Google</span>
+              </button>
+            </div>
+          ) : (
+            <GenresView
+              genres={genres}
+              books={visibleBooks}
+              onAddGenre={handleAddGenre}
+              onEditGenre={handleEditGenre}
+              onDeleteGenre={handleDeleteGenre}
+              onSelectGenre={(_genre) => {
+                setCurrentTab('shelf');
+              }}
+              currentUser={currentUser}
+              onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            />
+          )
         )}
       </main>
 
@@ -661,7 +751,7 @@ export default function App() {
       <ExportImportModal
         isOpen={isSettingsModalOpen}
         onClose={() => setIsSettingsModalOpen(false)}
-        books={books}
+        books={visibleBooks}
         genres={genres}
         onImportBooks={handleImportBooks}
         onResetToDemo={handleResetToDemo}
@@ -682,7 +772,8 @@ export default function App() {
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         currentUser={currentUser}
-        books={books}
+        books={visibleBooks}
+        onSignOut={handleExplicitSignOut}
       />
     </div>
   );

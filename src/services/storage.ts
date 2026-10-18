@@ -6,23 +6,18 @@ const BOOKS_STORE = 'books';
 const GENRES_STORE = 'genres';
 
 export const DEFAULT_GENRES: string[] = [
-  'Детектив',
-  'Триллер',
+  'Детектив/Триллер',
   'Фантастика',
   'Фэнтези',
   'Классическая литература',
   'Современная проза',
-  'Исторический роман',
-  'Научная фантастика',
   'Приключения',
   'Юмор',
   'Драма',
-  'Нон-фикшн',
-  'Биография',
   'Философия',
   'Антиутопия',
+  'Ужасы',
   'Повесть',
-  'Рассказ и новелла',
   'Другое'
 ];
 
@@ -190,13 +185,14 @@ class StorageService {
   }
 
   async saveBook(book: Book): Promise<void> {
+    const bookToSave = this.currentUserId ? { ...book, userId: this.currentUserId } : book;
     // 1. Immediately update fallback storage
     const all = this.getBooksFallback();
-    const idx = all.findIndex((b) => b.id === book.id);
+    const idx = all.findIndex((b) => b.id === bookToSave.id);
     if (idx >= 0) {
-      all[idx] = book;
+      all[idx] = bookToSave;
     } else {
-      all.unshift(book);
+      all.unshift(bookToSave);
     }
     this.saveBooksToLocalStorage(all);
     this.setSeeded(true);
@@ -208,7 +204,7 @@ class StorageService {
         try {
           const tx = db.transaction(BOOKS_STORE, 'readwrite');
           const store = tx.objectStore(BOOKS_STORE);
-          store.put(book);
+          store.put(bookToSave);
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
         } catch (err) {

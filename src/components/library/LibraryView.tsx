@@ -238,6 +238,32 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     return result;
   }, [filteredAndSortedBooks]);
 
+  // Strict Privacy: Unauthenticated users cannot view another user's library
+  if (!currentUser) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <div className="py-20 px-4 text-center border border-dashed border-[#DDD5C7] rounded-xl bg-[#F7F4EF] max-w-md mx-auto shadow-xs">
+          <div className="w-12 h-12 rounded-full bg-[#EFE9DF] flex items-center justify-center mx-auto mb-3 text-[#8A5A36]">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h3 className="text-xl font-display font-semibold text-[#24211D]">
+            Личная библиотека
+          </h3>
+          <p className="mt-2 text-xs text-[#6B6357] leading-relaxed">
+            Каждый читатель видит только свою библиотеку. Войдите через Google, чтобы открыть ваши книги и синхронизировать их между компьютером и телефоном.
+          </p>
+          <button
+            onClick={onOpenAuthModal}
+            className="mt-6 inline-flex items-center gap-2 px-5 py-2.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded-md font-medium text-xs transition-colors shadow-xs"
+          >
+            <Cloud className="w-4 h-4 text-[#EFE9DF]" />
+            <span>Войти через Google</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Top Title & Quick Controls */}

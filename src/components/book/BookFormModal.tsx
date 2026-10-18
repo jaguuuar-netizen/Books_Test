@@ -83,7 +83,7 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
       setReadingHours(initialBook.readingHours ? String(initialBook.readingHours) : '');
       setCoverUrl(initialBook.coverUrl || '');
       setCoverColor(initialBook.coverColor || '#273B30');
-      setSelectedGenres(initialBook.genres || []);
+      setSelectedGenres(initialBook.genres?.slice(0, 1) || []);
       setNotes(initialBook.notes || '');
       setSeries(initialBook.series || '');
       setSeriesNumber(initialBook.seriesNumber ? String(initialBook.seriesNumber) : '');
@@ -192,18 +192,18 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
     reader.readAsDataURL(file);
   };
 
-  // Genre selection toggle
+  // Genre selection (only one genre allowed per book)
   const toggleGenre = (genre: string) => {
     if (selectedGenres.includes(genre)) {
-      setSelectedGenres(selectedGenres.filter((g) => g !== genre));
+      setSelectedGenres([]);
     } else {
-      setSelectedGenres([...selectedGenres, genre]);
+      setSelectedGenres([genre]);
     }
   };
 
   const handleAddNewGenre = () => {
-    if (newGenreInput.trim() && !selectedGenres.includes(newGenreInput.trim())) {
-      setSelectedGenres([...selectedGenres, newGenreInput.trim()]);
+    if (newGenreInput.trim()) {
+      setSelectedGenres([newGenreInput.trim()]);
       setNewGenreInput('');
     }
   };
@@ -640,9 +640,12 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
 
           {/* Genres Selector */}
           <div className="space-y-2 pt-3 border-t border-[#EFE9DF]">
-            <label className="block text-xs font-semibold text-[#24211D]">
-              Жанры
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-[#24211D]">
+                Жанр
+              </label>
+              <span className="text-[11px] text-[#8A8172]">выберите один</span>
+            </div>
             <div className="flex flex-wrap gap-1.5">
               {genresList.map((g) => {
                 const isSelected = selectedGenres.includes(g);

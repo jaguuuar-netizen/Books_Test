@@ -3,9 +3,7 @@ import {
   User, 
   signInWithPopup, 
   signOut, 
-  GoogleAuthProvider, 
-  setPersistence, 
-  browserLocalPersistence 
+  GoogleAuthProvider 
 } from 'firebase/auth';
 import { auth, googleProvider, setCachedAccessToken, clearAccessToken } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
@@ -28,6 +26,7 @@ interface AuthModalProps {
   onClose: () => void;
   currentUser: User | null;
   books: Book[];
+  onSignOut?: () => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -35,6 +34,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onClose,
   currentUser,
   books,
+  onSignOut,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -60,12 +60,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage('');
     setIsUnauthorizedDomain(false);
     try {
-      // Force localStorage persistence on mobile browsers before popup
-      try {
-        await setPersistence(auth, browserLocalPersistence);
-      } catch (pErr) {
-        console.warn('Set persistence prior to sign in:', pErr);
-      }
       const result = await signInWithPopup(auth, googleProvider);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
@@ -96,7 +90,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         localStorage.removeItem('my_book_shelf_has_authenticated');
       }
       clearAccessToken();
+      onSignOut?.();
       await signOut(auth);
+      onClose();
     } catch (err: any) {
       console.error('Sign out error:', err);
     }
