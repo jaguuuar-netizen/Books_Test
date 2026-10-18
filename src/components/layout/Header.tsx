@@ -1,7 +1,7 @@
 import { Plus, Cloud, Check, RefreshCw, Lock } from 'lucide-react';
 import { User } from 'firebase/auth';
 
-export type NavTab = 'dashboard' | 'shelf' | 'achievements' | 'statistics' | 'calendar' | 'genres';
+export type NavTab = 'dashboard' | 'shelf' | 'recommendations' | 'statistics' | 'calendar' | 'genres';
 
 interface HeaderProps {
   currentTab: NavTab;
@@ -62,15 +62,15 @@ export const Header: React.FC<HeaderProps> = ({
             Полка
           </button>
           <button
-            onClick={() => onSelectTab('achievements')}
+            onClick={() => onSelectTab('recommendations')}
             className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
-              currentTab === 'achievements'
+              currentTab === 'recommendations'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
             }`}
-            title="Читательские достижения и трофеи"
+            title="Персональный ИИ ТОП-20 книг"
           >
-            <span>Достижения</span>
+            <span>Рекомендации</span>
           </button>
           <button
             onClick={() => onSelectTab('statistics')}

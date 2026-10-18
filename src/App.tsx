@@ -42,7 +42,7 @@ import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { StatisticsAuthGate } from './components/statistics/StatisticsAuthGate';
-import { AchievementsView } from './components/achievements/AchievementsView';
+import { RecommendationsView } from './components/recommendations/RecommendationsView';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -262,6 +262,25 @@ export default function App() {
     if (!ensureAuthenticated()) return;
     setEditingBook(null);
     setIsAddModalOpen(true);
+  };
+
+  const handleAddRecommendedBook = async (rec: Partial<Book>) => {
+    if (!ensureAuthenticated()) return;
+    const newBook: Book = {
+      id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      userId: currentUser?.uid,
+      title: rec.title || 'Новая книга',
+      authors: rec.authors && rec.authors.length > 0 ? rec.authors : ['Неизвестный автор'],
+      status: 'reading',
+      genres: rec.genres && rec.genres.length > 0 ? rec.genres : ['Художественная литература'],
+      pages: rec.pages || 350,
+      coverColor: rec.coverColor,
+      notes: rec.notes || '',
+      startDate: new Date().toISOString().split('T')[0],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await handleSaveBook(newBook);
   };
 
   // Save book (create or edit) -> writes to local storage AND to Firestore in real time
@@ -652,11 +671,12 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'achievements' && (
-          <AchievementsView
+        {currentTab === 'recommendations' && (
+          <RecommendationsView
             books={visibleBooks}
             currentUser={currentUser}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onAddBookToLibrary={handleAddRecommendedBook}
             onSelectBook={(book) => setSelectedBook(book)}
           />
         )}
