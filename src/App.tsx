@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { User, onAuthStateChanged } from 'firebase/auth';
-import { auth, getAccessToken } from './services/firebase';
+import { 
+  auth, 
+  getAccessToken, 
+  getSavedUserSession, 
+  saveUserSession, 
+  SavedUserSession 
+} from './services/firebase';
 import { 
   subscribeToCloudBooks, 
   subscribeToCloudGenres, 
   saveBookToCloud, 
   deleteBookFromCloud, 
   syncAllBooksToCloud,
+  uploadLocalBooksBatch,
   saveGenreToCloud,
   deleteGenreFromCloud,
   isStockDemoBooks
@@ -42,8 +49,15 @@ export default function App() {
   const [books, setBooks] = useState<Book[]>([]);
   const [genres, setGenres] = useState<string[]>(DEFAULT_GENRES);
   const [isLoading, setIsLoading] = useState(true);
-  const [currentUser, setCurrentUser] = useState<User | null>(() => auth.currentUser);
-  const [isAuthReady, setIsAuthReady] = useState(false);
+  
+  // Initialize with cached user session immediately to prevent auth dropping on page reload / mobile sleep
+  const cachedSessionRef = useRef<SavedUserSession | null>(getSavedUserSession());
+  const [currentUser, setCurrentUser] = useState<User | null>(
+    () => auth.currentUser || (cachedSessionRef.current as unknown as User) || null
+  );
+  const explicitlySignedOutRef = useRef<boolean>(false);
+
+  const [isAuthReady, setIsAuthReady] = useState(() => Boolean(auth.currentUser || cachedSessionRef.current));
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig | null>(() => loadGoogleSheetsConfig());
@@ -59,12 +73,13 @@ export default function App() {
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // 1. Initialize local cache on mount
+  // 1. Initialize local cache on mount immediately
   useEffect(() => {
     async function loadData() {
       try {
-        if (auth.currentUser) {
-          storageService.setUserId(auth.currentUser.uid);
+        const activeUid = auth.currentUser?.uid || cachedSessionRef.current?.uid;
+        if (activeUid) {
+          storageService.setUserId(activeUid);
           const cached = await storageService.getBooks();
           if (cached && cached.length > 0) {
             setBooks(cached);
@@ -106,15 +121,21 @@ export default function App() {
     let unsubGenres: (() => void) | null = null;
 
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
       setIsAuthReady(true);
 
       if (user) {
+        explicitlySignedOutRef.current = false;
+        setCurrentUser(user);
+        saveUserSession(user);
+        cachedSessionRef.current = {
+          uid: user.uid,
+          displayName: user.displayName || null,
+          email: user.email || null,
+          photoURL: user.photoURL || null,
+        };
+
         // Scope local cache to this user
         storageService.setUserId(user.uid);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('my_book_shelf_has_authenticated', 'true');
-        }
 
         // Fast initial paint from this user's private local cache
         try {
@@ -145,10 +166,20 @@ export default function App() {
                 return cloudBooks.find((b) => b.id === prev.id) || null;
               });
             } else {
-              // Cloud has 0 books for this user: user sees their own clean empty library
-              setBooks([]);
-              await storageService.setAllBooks([]);
-              storageService.setSeeded(true);
+              // Cloud has 0 books: check if user already has local books to prevent accidental wipe!
+              const localBooks = await storageService.getBooks();
+              if (localBooks && localBooks.length > 0) {
+                // Preserve local books and automatically backup to Cloud!
+                try {
+                  await uploadLocalBooksBatch(user.uid, localBooks);
+                } catch (e) {
+                  console.warn('Auto backup local books to cloud error:', e);
+                }
+              } else {
+                setBooks([]);
+                await storageService.setAllBooks([]);
+                storageService.setSeeded(true);
+              }
             }
           },
           (error) => {
@@ -166,22 +197,27 @@ export default function App() {
         });
 
       } else {
-        // User logged out or unauthenticated: clean up listeners and immediately clear private user data
-        if (unsubBooks) {
-          unsubBooks();
-          unsubBooks = null;
-        }
-        if (unsubGenres) {
-          unsubGenres();
-          unsubGenres = null;
-        }
-        storageService.setUserId(null);
-        setBooks([]);
-        setSelectedBook(null);
-        setIsSyncing(false);
-        setLastSyncedAt(null);
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem('my_book_shelf_has_authenticated');
+        // Firebase reported null user: only clear if explicitly signed out or no saved session exists
+        if (explicitlySignedOutRef.current || !getSavedUserSession()) {
+          if (unsubBooks) {
+            unsubBooks();
+            unsubBooks = null;
+          }
+          if (unsubGenres) {
+            unsubGenres();
+            unsubGenres = null;
+          }
+          saveUserSession(null);
+          cachedSessionRef.current = null;
+          storageService.setUserId(null);
+          setBooks([]);
+          setSelectedBook(null);
+          setCurrentUser(null);
+          setIsSyncing(false);
+          setLastSyncedAt(null);
+        } else {
+          // Tab backgrounded or network reconnecting on mobile: preserve session
+          console.log('Firebase reported null user, but cached session exists. Keeping session active.');
         }
       }
     });
@@ -546,15 +582,15 @@ export default function App() {
   };
 
   const handleExplicitSignOut = () => {
+    explicitlySignedOutRef.current = true;
+    saveUserSession(null);
+    cachedSessionRef.current = null;
     storageService.setUserId(null);
     setBooks([]);
     setSelectedBook(null);
     setCurrentUser(null);
     setIsSyncing(false);
     setLastSyncedAt(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('my_book_shelf_has_authenticated');
-    }
   };
 
   // Absolute privacy boundary: unauthenticated readers cannot see another user's books

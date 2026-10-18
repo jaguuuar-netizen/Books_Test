@@ -5,7 +5,7 @@ import {
   signOut, 
   GoogleAuthProvider 
 } from 'firebase/auth';
-import { auth, googleProvider, setCachedAccessToken, clearAccessToken } from '../../services/firebase';
+import { auth, googleProvider, setCachedAccessToken, clearAccessToken, saveUserSession } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
 import { Book } from '../../types/book';
 import { 
@@ -24,7 +24,7 @@ import {
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: User | null;
+  currentUser: User | any | null;
   books: Book[];
   onSignOut?: () => void;
 }
@@ -65,8 +65,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       if (credential?.accessToken) {
         setCachedAccessToken(credential.accessToken);
       }
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('my_book_shelf_has_authenticated', 'true');
+      if (result.user) {
+        saveUserSession(result.user);
       }
       // Data synchronization is handled reactively by subscribeToCloudBooks
     } catch (err: any) {
@@ -86,9 +86,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSignOut = async () => {
     try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('my_book_shelf_has_authenticated');
-      }
+      saveUserSession(null);
       clearAccessToken();
       onSignOut?.();
       await signOut(auth);

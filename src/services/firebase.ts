@@ -20,19 +20,54 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Firebase Auth with browserLocalPersistence (localStorage) as primary,
-// with indexedDBLocalPersistence as fallback. This guarantees that user authentication
-// and sync NEVER drop when mobile browser tabs are closed, refreshed, or backgrounded.
+// Initialize Firebase Auth with indexedDBLocalPersistence and browserLocalPersistence fallback.
+// This guarantees that user authentication survives mobile browser restarts, screen locking, and backgrounding.
 let authInstance: any;
 try {
   authInstance = initializeAuth(app, {
-    persistence: [browserLocalPersistence, indexedDBLocalPersistence],
+    persistence: [indexedDBLocalPersistence, browserLocalPersistence],
   });
 } catch (e: any) {
   // If already initialized (e.g. during Vite HMR/reload)
   authInstance = getAuth(app);
 }
 export const auth = authInstance;
+
+export interface SavedUserSession {
+  uid: string;
+  displayName: string | null;
+  email: string | null;
+  photoURL: string | null;
+}
+
+export const getSavedUserSession = (): SavedUserSession | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('my_book_shelf_saved_user');
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
+export const saveUserSession = (user: User | SavedUserSession | null) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (user) {
+      const session: SavedUserSession = {
+        uid: user.uid,
+        displayName: user.displayName || null,
+        email: user.email || null,
+        photoURL: user.photoURL || null,
+      };
+      localStorage.setItem('my_book_shelf_saved_user', JSON.stringify(session));
+      localStorage.setItem('my_book_shelf_has_authenticated', 'true');
+    } else {
+      localStorage.removeItem('my_book_shelf_saved_user');
+      localStorage.removeItem('my_book_shelf_has_authenticated');
+    }
+  } catch {}
+};
 
 // Clean standard Google provider: requests standard profile/email identity only.
 // NEVER attach unverified Workspace scopes here, because Google revokes unverified scopes
