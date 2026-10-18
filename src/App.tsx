@@ -42,7 +42,7 @@ import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { StatisticsAuthGate } from './components/statistics/StatisticsAuthGate';
-import { BookSpinesView } from './components/bookcase/BookSpinesView';
+import { AchievementsView } from './components/achievements/AchievementsView';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -652,13 +652,12 @@ export default function App() {
           />
         )}
 
-        {currentTab === 'spines' && (
-          <BookSpinesView
+        {currentTab === 'achievements' && (
+          <AchievementsView
             books={visibleBooks}
-            onSelectBook={(book) => setSelectedBook(book)}
-            onOpenAddModal={handleOpenAddModal}
             currentUser={currentUser}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
+            onSelectBook={(book) => setSelectedBook(book)}
           />
         )}
 

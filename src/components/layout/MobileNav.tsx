@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, BookOpen, Library, BarChart3, Calendar, Tag, Database } from 'lucide-react';
+import { Home, BookOpen, Trophy, BarChart3, Calendar, Tag, Database } from 'lucide-react';
 import { NavTab } from './Header';
 
 interface MobileNavProps {
@@ -37,14 +37,14 @@ export const MobileNav: React.FC<MobileNavProps> = ({
         </button>
 
         <button
-          onClick={() => onSelectTab('spines')}
+          onClick={() => onSelectTab('achievements')}
           className={`flex flex-col items-center justify-center min-w-[40px] py-1 px-0.5 transition-colors ${
-            currentTab === 'spines' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
+            currentTab === 'achievements' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
           }`}
-          title="Полка с корешками"
+          title="Читательские достижения"
         >
-          <Library className="w-4 h-4 mb-0.5" />
-          <span className="text-[9px] whitespace-nowrap">Корешки</span>
+          <Trophy className="w-4 h-4 mb-0.5" />
+          <span className="text-[9px] whitespace-nowrap">Трофеи</span>
         </button>
 
         <button
