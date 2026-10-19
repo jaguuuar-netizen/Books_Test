@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Cloud, Lock, BarChart3, TrendingUp, Sparkles, BookOpen, Clock, Users, ArrowRight } from 'lucide-react';
-import { signInWithPopup, GoogleAuthProvider } from 'firebase/auth';
+import { signInWithPopup, GoogleAuthProvider, browserPopupRedirectResolver } from 'firebase/auth';
 import { auth, googleProvider, setCachedAccessToken } from '../../services/firebase';
 
 interface StatisticsAuthGateProps {
@@ -19,7 +19,7 @@ export const StatisticsAuthGate: React.FC<StatisticsAuthGateProps> = ({
     setIsSigningIn(true);
     setErrorMessage(null);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setCachedAccessToken(credential.accessToken);

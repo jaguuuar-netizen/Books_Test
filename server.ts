@@ -160,21 +160,28 @@ ${genreFocusStr}${moodStr}
 });
 
 // Setup Vite in development or serve static in production
-if (!isProd) {
-  const { createServer: createViteServer } = await import('vite');
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: 'spa',
-  });
-  app.use(vite.middlewares);
-} else {
-  const distPath = path.join(__dirname, 'dist');
-  app.use(express.static(distPath));
-  app.get('*', (_req, res) => {
-    res.sendFile(path.join(distPath, 'index.html'));
+async function startServer() {
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(__dirname, 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (_req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Server is running at http://localhost:${PORT} [${isProd ? 'production' : 'development'}]`);
   });
 }
 
-app.listen(PORT, () => {
-  console.log(`Server is running at http://localhost:${PORT} [${isProd ? 'production' : 'development'}]`);
+startServer().catch((err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });

@@ -3,7 +3,8 @@ import {
   User, 
   signInWithPopup, 
   signOut, 
-  GoogleAuthProvider 
+  GoogleAuthProvider,
+  browserPopupRedirectResolver 
 } from 'firebase/auth';
 import { auth, googleProvider, setCachedAccessToken, clearAccessToken, saveUserSession } from '../../services/firebase';
 import { uploadLocalBooksBatch } from '../../services/cloudSync';
@@ -60,7 +61,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setErrorMessage('');
     setIsUnauthorizedDomain(false);
     try {
-      const result = await signInWithPopup(auth, googleProvider);
+      const result = await signInWithPopup(auth, googleProvider, browserPopupRedirectResolver);
       const credential = GoogleAuthProvider.credentialFromResult(result);
       if (credential?.accessToken) {
         setCachedAccessToken(credential.accessToken);

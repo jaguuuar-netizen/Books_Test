@@ -1,13 +1,11 @@
 import { initializeApp } from 'firebase/app';
 import { 
-  initializeAuth,
   getAuth,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
   User, 
-  browserLocalPersistence, 
-  indexedDBLocalPersistence 
+  browserPopupRedirectResolver 
 } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -20,18 +18,10 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Firebase Auth with indexedDBLocalPersistence and browserLocalPersistence fallback.
-// This guarantees that user authentication survives mobile browser restarts, screen locking, and backgrounding.
-let authInstance: any;
-try {
-  authInstance = initializeAuth(app, {
-    persistence: [indexedDBLocalPersistence, browserLocalPersistence],
-  });
-} catch (e: any) {
-  // If already initialized (e.g. during Vite HMR/reload)
-  authInstance = getAuth(app);
-}
-export const auth = authInstance;
+// Initialize Firebase Auth. getAuth(app) in browser environments automatically configures
+// indexedDBLocalPersistence with browserLocalPersistence fallback and browserPopupRedirectResolver.
+export const auth = getAuth(app);
+export { browserPopupRedirectResolver };
 
 export interface SavedUserSession {
   uid: string;
@@ -132,7 +122,7 @@ export const clearAccessToken = () => {
 export const requestGoogleAccessToken = async (): Promise<string> => {
   try {
     const sheetsProvider = getSheetsGoogleProvider();
-    const result = await signInWithPopup(auth, sheetsProvider);
+    const result = await signInWithPopup(auth, sheetsProvider, browserPopupRedirectResolver);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     if (!credential?.accessToken) {
       throw new Error('Не удалось получить токен доступа Google. Пожалуйста, разрешите доступ к Google Таблицам.');
