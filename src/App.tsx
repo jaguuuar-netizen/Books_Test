@@ -678,6 +678,7 @@ export default function App() {
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
             onAddBookToLibrary={handleAddRecommendedBook}
             onSelectBook={(book) => setSelectedBook(book)}
+            genresList={genres}
           />
         )}
 
