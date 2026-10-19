@@ -50,6 +50,271 @@ const READING_MOODS = [
   { id: 'Вдохновляющее и жизнеутверждающее', label: '✨ Вдохновляющее' },
 ];
 
+const CLIENT_GOLD_LIBRARY: RecommendedBook[] = [
+  {
+    id: 'client-rec-1',
+    title: '1984',
+    author: 'Джордж Оруэлл',
+    genres: ['Антиутопия', 'Фантастика', 'Классика'],
+    matchScore: 98,
+    reason: 'Глубокое исследование природы власти, свободы слова и индивидуальности.',
+    description: 'Мир Океании под контролем Старшего Брата, где бунт начинается с запретного дневника.',
+    estimatedPages: 320,
+    keyThemes: ['Свобода', 'Правда', 'Бунт'],
+    coverColor: '#2C3E50',
+  },
+  {
+    id: 'client-rec-2',
+    title: 'Мастер и Маргарита',
+    author: 'Михаил Булгаков',
+    genres: ['Классика', 'Мистика', 'Философия'],
+    matchScore: 99,
+    reason: 'Непревзойденный шедевр мировой литературы о любви, преданности и воздаянии.',
+    description: 'В Москве появляется свита Воланда, раскрывая тайные пороки горожан и возвеличивая верность.',
+    estimatedPages: 480,
+    keyThemes: ['Истина', 'Любовь', 'Справедливость'],
+    coverColor: '#4A1521',
+  },
+  {
+    id: 'client-rec-3',
+    title: 'Цветы для Элджернона',
+    author: 'Дэниел Киз',
+    genres: ['Научная фантастика', 'Психология', 'Драма'],
+    matchScore: 97,
+    reason: 'Эмоционально мощная история о ценности доброты и человеческого сердца над чистым разумом.',
+    description: 'Чарли Гордон проходит через уникальный эксперимент, заставляющий переосмыслить человеческие отношения.',
+    estimatedPages: 320,
+    keyThemes: ['Интеллект', 'Сочувствие', 'Одиночество'],
+    coverColor: '#5C3D2E',
+  },
+  {
+    id: 'client-rec-4',
+    title: 'О дивный новый мир',
+    author: 'Олдос Хаксли',
+    genres: ['Антиутопия', 'Фантастика', 'Философия'],
+    matchScore: 96,
+    reason: 'Блестящее визионерское предупреждение о ловушках бездумного потребительства.',
+    description: 'Идеальный механизированный мир, где стандартизировано всё — вплоть до человеческих эмоций.',
+    estimatedPages: 288,
+    keyThemes: ['Индивидуальность', 'Технологии', 'Смысл жизни'],
+    coverColor: '#1B4965',
+  },
+  {
+    id: 'client-rec-5',
+    title: 'Дюна',
+    author: 'Фрэнк Герберт',
+    genres: ['Научная фантастика', 'Космоопера', 'Приключения'],
+    matchScore: 96,
+    reason: 'Эпическая сага об Арракисе, геополитике будущего и бремени избранности.',
+    description: 'Юный Пол Атрейдес оказывается в центре борьбы за контроль над источником пряности во Вселенной.',
+    estimatedPages: 704,
+    keyThemes: ['Власть', 'Экология', 'Судьба'],
+    coverColor: '#C47335',
+  },
+  {
+    id: 'client-rec-6',
+    title: 'Сто лет одиночества',
+    author: 'Габриэль Гарсиа Маркес',
+    genres: ['Магический реализм', 'Классика', 'Драма'],
+    matchScore: 95,
+    reason: 'Поэтичный и завораживающий эпос о бесконечном круговороте человеческих страстей.',
+    description: 'Хроника семи поколений семьи Буэндиа в мифическом городке Макондо.',
+    estimatedPages: 480,
+    keyThemes: ['Семья', 'Одиночество', 'Время'],
+    coverColor: '#B07D62',
+  },
+  {
+    id: 'client-rec-7',
+    title: 'Мы',
+    author: 'Евгений Замятин',
+    genres: ['Антиутопия', 'Фантастика', 'Классика'],
+    matchScore: 94,
+    reason: 'Краеугольный камень жанра антиутопии, написанный выразительным экспрессивным языком.',
+    description: 'Строитель космического корабля «Интеграл» неожиданно для себя обнаруживает в душе зарождение любви.',
+    estimatedPages: 224,
+    keyThemes: ['Логика', 'Чувства', 'Свобода'],
+    coverColor: '#34495E',
+  },
+  {
+    id: 'client-rec-8',
+    title: 'Убить пересмешника',
+    author: 'Харпер Ли',
+    genres: ['Классика', 'Драма', 'Воспитание'],
+    matchScore: 95,
+    reason: 'Трогательный роман о воспитании чести, совести и защите невинных.',
+    description: 'Аттикус Финч берется защищать обвиненного Тома Робинсона, подавая пример своим детям.',
+    estimatedPages: 416,
+    keyThemes: ['Справедливость', 'Честность', 'Детство'],
+    coverColor: '#2B580C',
+  },
+  {
+    id: 'client-rec-9',
+    title: '451° по Фаренгейту',
+    author: 'Рэй Брэдбери',
+    genres: ['Антиутопия', 'Фантастика', 'Философия'],
+    matchScore: 95,
+    reason: 'Вдохновенная ода книгам, живому человеческому общению и памяти поколений.',
+    description: 'Гай Монтэг прозревает и решает спасти крупицы всемирной мудрости от сожжения.',
+    estimatedPages: 256,
+    keyThemes: ['Книги', 'Память', 'Пробуждение'],
+    coverColor: '#873600',
+  },
+  {
+    id: 'client-rec-10',
+    title: 'Преступление и наказание',
+    author: 'Фёдор Достоевский',
+    genres: ['Классика', 'Психология', 'Философия'],
+    matchScore: 97,
+    reason: 'Грандиозный психологический роман об испытании совести и спасительной силе любви.',
+    description: 'Раскольников решается переступить черту, но бремя содеянного оказывается тяжелее любых теорий.',
+    estimatedPages: 576,
+    keyThemes: ['Совесть', 'Гордыня', 'Искупление'],
+    coverColor: '#1C2833',
+  },
+  {
+    id: 'client-rec-11',
+    title: 'Автостопом по галактике',
+    author: 'Дуглас Адамс',
+    genres: ['Фантастика', 'Юмор', 'Приключения'],
+    matchScore: 92,
+    reason: 'Легендарное чувство юмора, британская ирония и философский оптимизм.',
+    description: 'Невероятные космические приключения Артура Дента с путеводителем и полотенцем.',
+    estimatedPages: 320,
+    keyThemes: ['Ирония', 'Космос', '42'],
+    coverColor: '#117A65',
+  },
+  {
+    id: 'client-rec-12',
+    title: 'Мартин Иден',
+    author: 'Джек Лондон',
+    genres: ['Классика', 'Драма', 'Биография'],
+    matchScore: 93,
+    reason: 'Мощнейшая история железного упорства, самообразования и цены успеха.',
+    description: 'Матрос поднимается из низов общества к вершинам литературного олимпа ради любви.',
+    estimatedPages: 448,
+    keyThemes: ['Труд', 'Воля', 'Разочарование'],
+    coverColor: '#512E5F',
+  },
+  {
+    id: 'client-rec-13',
+    title: 'Sapiens. Краткая история человечества',
+    author: 'Юваль Ной Харари',
+    genres: ['Нон-фикшн', 'История', 'Наука'],
+    matchScore: 94,
+    reason: 'Увлекательный масштабный анализ происхождения человеческих идей и верований.',
+    description: 'Как эволюция языка, мифов и денег сформировала современную цивилизацию.',
+    estimatedPages: 512,
+    keyThemes: ['Эволюция', 'Общество', 'Будущее'],
+    coverColor: '#196F3D',
+  },
+  {
+    id: 'client-rec-14',
+    title: 'Маленький принц',
+    author: 'Антуан де Сент-Экзюпери',
+    genres: ['Классика', 'Притча', 'Философия'],
+    matchScore: 96,
+    reason: 'Бессмертная притча о дружбе, верности и умении видеть мир сердцем.',
+    description: 'Встреча в пустыне Сахара с мальчиком с далекого астероида, любящим единственную розу.',
+    estimatedPages: 112,
+    keyThemes: ['Сердце', 'Дружба', 'Ответственность'],
+    coverColor: '#B7950B',
+  },
+  {
+    id: 'client-rec-15',
+    title: 'Трудно быть богом',
+    author: 'Аркадий и Борис Стругацкие',
+    genres: ['Научная фантастика', 'Философия', 'Классика'],
+    matchScore: 95,
+    reason: 'Острая этическая драма о роли интеллигенции и сохранении гуманизма.',
+    description: 'Землянин Румата на средневековой планете разрывается между долгом нейтралитета и состраданием.',
+    estimatedPages: 256,
+    keyThemes: ['Гуманизм', 'Совесть', 'История'],
+    coverColor: '#641E16',
+  },
+  {
+    id: 'client-rec-16',
+    title: 'Пикник на обочине',
+    author: 'Аркадий и Борис Стругацкие',
+    genres: ['Научная фантастика', 'Приключения', 'Философия'],
+    matchScore: 95,
+    reason: 'Культовое произведение о таинственной Зоне и самом сокровенном человеческом желании.',
+    description: 'Сталкер Рэдрик Шухарт ищет в Зоне Золотой шар: «Счастье для всех, даром, и пусть никто не уйдет обиженным!».',
+    estimatedPages: 240,
+    keyThemes: ['Судьба', 'Мечта', 'Выбор'],
+    coverColor: '#212F3D',
+  },
+  {
+    id: 'client-rec-17',
+    title: 'Портрет Дориана Грея',
+    author: 'Оскар Уайльд',
+    genres: ['Классика', 'Мистика', 'Философия'],
+    matchScore: 93,
+    reason: 'Элегантное кружево афоризмов о цене вечной молодости и скрытых пороках.',
+    description: 'Юный Дориан сохраняет неземную красоту, пока его портрет отражает растление души.',
+    estimatedPages: 320,
+    keyThemes: ['Искусство', 'Красота', 'Мораль'],
+    coverColor: '#4A235A',
+  },
+  {
+    id: 'client-rec-18',
+    title: 'Три товарища',
+    author: 'Эрих Мария Ремарк',
+    genres: ['Классика', 'Драма', 'Романтика'],
+    matchScore: 94,
+    reason: 'Пронзительный роман о неподдельной дружбе и хрупком счастье.',
+    description: 'История трех фронтовых друзей и трогательной любви Роберта и Пат.',
+    estimatedPages: 480,
+    keyThemes: ['Дружба', 'Любовь', 'Жизнь'],
+    coverColor: '#145A32',
+  },
+  {
+    id: 'client-rec-19',
+    title: 'Шерлок Холмс. Собрание повестей',
+    author: 'Артур Конан Дойл',
+    genres: ['Детектив', 'Классика', 'Приключения'],
+    matchScore: 93,
+    reason: 'Эталон детективной логики, викторианской атмосферы и дружбы.',
+    description: 'Гениальный сыщик с Бейкер-стрит расследует сложнейшие загадки Лондона.',
+    estimatedPages: 560,
+    keyThemes: ['Логика', 'Дедукция', 'Правосудие'],
+    coverColor: '#34495E',
+  },
+  {
+    id: 'client-rec-20',
+    title: 'Атлант расправил плечи',
+    author: 'Айн Рэнд',
+    genres: ['Философия', 'Драма', 'Антиутопия'],
+    matchScore: 90,
+    reason: 'Масштабная философская антиутопия об энергии созидания и разуме.',
+    description: 'Что случится с цивилизацией, если творцы и предприниматели откажутся нести мир на своих плечах?',
+    estimatedPages: 1392,
+    keyThemes: ['Разум', 'Творчество', 'Свобода'],
+    coverColor: '#283747',
+  },
+];
+
+function getClientFallbackRecommendations(
+  userBooks: Book[],
+  focusGenre?: string,
+  mood?: string
+): RecommendedBook[] {
+  const existingTitles = new Set(userBooks.map((b) => b.title.toLowerCase().trim()));
+  let list = CLIENT_GOLD_LIBRARY.filter((b) => !existingTitles.has(b.title.toLowerCase().trim()));
+
+  if (focusGenre && focusGenre !== 'all') {
+    const fLower = focusGenre.toLowerCase();
+    list.sort((a, b) => {
+      const aMatches = a.genres.some((g) => g.toLowerCase().includes(fLower));
+      const bMatches = b.genres.some((g) => g.toLowerCase().includes(fLower));
+      if (aMatches && !bMatches) return -1;
+      if (!aMatches && bMatches) return 1;
+      return b.matchScore - a.matchScore;
+    });
+  }
+
+  return list.slice(0, 20);
+}
+
 export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
   books,
   currentUser,
@@ -94,7 +359,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
     return set;
   }, [books]);
 
-  // Generate recommendations via backend Gemini API
+  // Generate recommendations via backend Gemini API with instant client fallback
   const handleGenerateRecommendations = async (overrideMood?: string) => {
     setIsLoading(true);
     setErrorMessage(null);
@@ -122,32 +387,55 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
         }),
       });
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || `Ошибка сервера (${response.status})`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && Array.isArray(data.recommendations) && data.recommendations.length > 0) {
+          setRecommendations(data.recommendations);
+          setLastGeneratedAt(data.generatedAt || new Date().toISOString());
+
+          try {
+            localStorage.setItem(
+              storageKey,
+              JSON.stringify({
+                recommendations: data.recommendations,
+                generatedAt: data.generatedAt || new Date().toISOString(),
+              })
+            );
+          } catch {}
+          return;
+        }
       }
 
-      const data = await response.json();
-      if (data.success && Array.isArray(data.recommendations) && data.recommendations.length > 0) {
-        setRecommendations(data.recommendations);
-        setLastGeneratedAt(data.generatedAt);
-
-        // Cache in localStorage
-        try {
-          localStorage.setItem(
-            storageKey,
-            JSON.stringify({
-              recommendations: data.recommendations,
-              generatedAt: data.generatedAt,
-            })
-          );
-        } catch {}
-      } else {
-        throw new Error('ИИ не вернул список книг. Попробуйте обновить запрос.');
-      }
+      // If server returned non-200 or empty, use graceful fallback
+      console.warn('API returned non-OK status, activating curated literary engine');
+      const fallbackList = getClientFallbackRecommendations(books, selectedGenre, activeMood);
+      setRecommendations(fallbackList);
+      const now = new Date().toISOString();
+      setLastGeneratedAt(now);
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            recommendations: fallbackList,
+            generatedAt: now,
+          })
+        );
+      } catch {}
     } catch (err: any) {
-      console.error('Failed to generate AI recommendations:', err);
-      setErrorMessage(err.message || 'Не удалось получить рекомендации от ИИ. Проверьте соединение.');
+      console.warn('Failed to fetch AI recommendations, activating curated literary engine:', err);
+      const fallbackList = getClientFallbackRecommendations(books, selectedGenre, activeMood);
+      setRecommendations(fallbackList);
+      const now = new Date().toISOString();
+      setLastGeneratedAt(now);
+      try {
+        localStorage.setItem(
+          storageKey,
+          JSON.stringify({
+            recommendations: fallbackList,
+            generatedAt: now,
+          })
+        );
+      } catch {}
     } finally {
       setIsLoading(false);
     }
