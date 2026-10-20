@@ -62,7 +62,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       } catch {}
     }
   };
-  const [activeTab, setActiveTab] = useState<'all' | 'reading' | 'completed'>('all');
+  const [activeTab, setActiveTab] = useState<'all' | 'reading' | 'planned' | 'completed'>('all');
   const [showFilters, setShowFilters] = useState(false);
 
   // Filters state
@@ -111,6 +111,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       .filter((book) => {
         // Tab filter
         if (activeTab === 'reading' && book.status !== 'reading') return false;
+        if (activeTab === 'planned' && book.status !== 'planned') return false;
         if (activeTab === 'completed' && book.status !== 'completed') return false;
 
         // Search query (title and author)
@@ -345,6 +346,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             }`}
           >
             Читаю ({books.filter((b) => b.status === 'reading').length})
+          </button>
+          <button
+            onClick={() => setActiveTab('planned')}
+            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+              activeTab === 'planned'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm'
+                : 'text-[#7A7265] hover:text-[#24211D]'
+            }`}
+          >
+            В планах / Виш-лист ({books.filter((b) => b.status === 'planned').length})
           </button>
           <button
             onClick={() => setActiveTab('completed')}
@@ -715,7 +726,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     </td>
                     <td className="py-2 px-3">
                       <span className="text-[11px] text-[#6B6357]">
-                        {book.status === 'completed' ? 'Прочитана' : 'Читаю'}
+                        {book.status === 'completed' ? 'Прочитана' : book.status === 'planned' ? 'В планах' : 'Читаю'}
                       </span>
                     </td>
                     <td className="py-2 px-3 text-right font-mono font-medium tabular-nums text-[#8A5A36]">

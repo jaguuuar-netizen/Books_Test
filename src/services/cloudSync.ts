@@ -57,7 +57,7 @@ export function sanitizeBookForFirestore(book: Book, userId: string): Record<str
     userId,
     title: cleanTitle,
     authors: validAuthors.length > 0 ? validAuthors : ['Неизвестный автор'],
-    status: book.status === 'reading' ? 'reading' : 'completed',
+    status: book.status === 'reading' ? 'reading' : book.status === 'planned' ? 'planned' : 'completed',
     genres: Array.isArray(book.genres) && book.genres.length > 0
       ? book.genres.map((g) => String(g || '').trim()).filter(Boolean)
       : ['Другое'],

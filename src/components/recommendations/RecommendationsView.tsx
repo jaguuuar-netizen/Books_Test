@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
+import { TOP20_BY_CATEGORY, getTop20ForCategory, CuratedBook } from '../../data/curatedTop20';
 import { 
   Sparkles, 
   BookOpen, 
@@ -38,6 +39,7 @@ export interface RecommendedBook {
   estimatedPages: number;
   keyThemes: string[];
   coverColor: string;
+  isWishlist?: boolean;
 }
 
 export interface DismissedBook {
@@ -539,36 +541,124 @@ const CLIENT_GOLD_LIBRARY: RecommendedBook[] = [
   },
 ];
 
-// Fallback recommendations generator for any category with excluded titles removed
-function getClientCategoryRecommendations(
-  userBooks: Book[],
-  excludedTitles: string[],
-  focusCategory: string
-): RecommendedBook[] {
-  const excludedSet = new Set([
-    ...userBooks.map((b) => b.title.toLowerCase().trim()),
-    ...excludedTitles.map((t) => t.toLowerCase().trim()),
-  ]);
+// Strict keyword verification to guarantee category purity
+export const STRICT_GENRE_KEYWORDS: Record<string, string[]> = {
+  'Детектив': ['детектив', 'триллер', 'расследование', 'криминал', 'сыщик', 'убийств', 'саспенс', 'нуар', 'маньяк', 'холмса', 'пуаро', 'следствие'],
+  'Антиутопия': ['антиутопи', 'тоталитар', 'дистопи', 'оруэлл', 'замятин', 'хаксли', 'брэдбери', 'бунт против системы', 'диктатур'],
+  'Фантастика': ['фантастик', 'космос', 'киберпанк', 'сай-фай', 'sci-fi', 'нф', 'космоопера', 'робот', 'пришельц', 'будущее'],
+  'Фэнтези': ['фэнтези', 'маги', 'дракон', 'эльф', 'меч', 'толкин', 'сапковск', 'хогвартс', 'заклинани', 'ведьмак'],
+  'Классика': ['классик', 'роман', 'толстой', 'достоевск', 'булгаков', 'драма', 'повесть'],
+  'Психология': ['психолог', 'саморазвит', 'мозг', 'привычк', 'поведени', 'эмоци', 'мышлени', 'психотерапи'],
+  'Нон-фикшн': ['нон-фикшн', 'наука', 'биографи', 'истори', 'научпоп', 'документал', 'эволюци', 'факты'],
+  'Приключения': ['приключен', 'путешеств', 'остров', 'пират', 'экспедици', 'море', 'робинзонада', 'клад'],
+  'Драма': ['драма', 'романтик', 'любов', 'чувств', 'трагеди', 'судьба', 'отношени'],
+};
 
-  let pool = CLIENT_GOLD_LIBRARY.filter((b) => !excludedSet.has(b.title.toLowerCase().trim()));
+// Known cross-genre leaks to explicitly reject
+export const GENRE_DISALLOWED_MAP: Record<string, string[]> = {
+  'Детектив': ['дюна', 'властелин колец', 'мы', 'солярис', 'гиперион', 'хоббит', 'ведьмак', 'гарри поттер', '1984', 'о дивный новый мир', 'скотный двор'],
+  'Антиутопия': ['дюна', 'властелин колец', 'ведьмак', 'гарри поттер', 'дерево', 'хоббит', 'десять негритят', 'собака баскервилей'],
+  'Фэнтези': ['дюна', '1984', 'мы', 'солярис', 'десять негритят', 'собака баскервилей', 'нейромант', 'sapiens'],
+  'Фантастика': ['властелин колец', 'хоббит', 'ведьмак', 'гарри поттер', 'десять негритят', 'гордость и предубеждение'],
+};
 
-  if (focusCategory && focusCategory !== 'all') {
-    const fLower = focusCategory.toLowerCase();
-    const matching = pool.filter((b) => b.genres.some((g) => g.toLowerCase().includes(fLower)));
-    if (matching.length >= 5) {
-      pool = matching;
-    } else {
-      pool.sort((a, b) => {
-        const aMatches = a.genres.some((g) => g.toLowerCase().includes(fLower));
-        const bMatches = b.genres.some((g) => g.toLowerCase().includes(fLower));
-        if (aMatches && !bMatches) return -1;
-        if (!aMatches && bMatches) return 1;
-        return b.matchScore - a.matchScore;
-      });
-    }
+// Helper: strictly verify if a book belongs to the selected category
+export function isBookMatchingCategory(
+  book: { title: string; genres?: string[]; authors?: string[] },
+  category: string
+): boolean {
+  if (!category || category === 'all') return true;
+  const titleLower = (book.title || '').toLowerCase().trim();
+  const disallowed = GENRE_DISALLOWED_MAP[category] || [];
+  if (disallowed.some((bad) => titleLower.includes(bad))) {
+    return false;
   }
 
-  return pool.slice(0, 20);
+  // 1. Is title directly present in curated Top 20 for this category?
+  const curated = TOP20_BY_CATEGORY[category] || [];
+  if (curated.some((c) => c.title.toLowerCase().trim() === titleLower)) {
+    return true;
+  }
+
+  // 2. Do genres match the category name or keywords?
+  const keywords = STRICT_GENRE_KEYWORDS[category] || [category.toLowerCase()];
+  const bookGenres = (book.genres || []).map((g) => g.toLowerCase());
+  if (bookGenres.some((g) => keywords.some((k) => g.includes(k)))) {
+    return true;
+  }
+
+  return false;
+}
+
+// High-precision recommendations generator with strict category isolation and wishlist prioritization
+export function getClientCategoryRecommendations(
+  userBooks: Book[],
+  dismissedTitles: string[],
+  focusCategory: string
+): RecommendedBook[] {
+  // Exclude completed books and dismissed books
+  const completedTitles = userBooks
+    .filter((b) => b.status === 'completed')
+    .map((b) => b.title.toLowerCase().trim());
+  const allExcluded = Array.from(new Set([...completedTitles, ...dismissedTitles]));
+  const excludedSet = new Set(allExcluded);
+
+  const result: RecommendedBook[] = [];
+  const addedTitles = new Set<string>();
+
+  // 1. FIRST: Find books from USER'S WISHLIST (status === 'planned') that match this category!
+  const userWishlist = userBooks.filter((b) => b.status === 'planned');
+  const matchingWishlist = userWishlist.filter((b) => {
+    const t = b.title.toLowerCase().trim();
+    if (excludedSet.has(t)) return false;
+    return isBookMatchingCategory(b, focusCategory);
+  });
+
+  // Prepend matching wishlist books with 99% match and wishlist badge
+  matchingWishlist.forEach((wb, idx) => {
+    const t = wb.title.toLowerCase().trim();
+    if (!addedTitles.has(t)) {
+      addedTitles.add(t);
+      result.push({
+        id: wb.id || `wish-${idx}`,
+        title: wb.title,
+        author: (wb.authors && wb.authors.length > 0) ? wb.authors.join(', ') : 'Автор',
+        genres: wb.genres && wb.genres.length > 0 ? wb.genres : [focusCategory === 'all' ? 'Избранное' : focusCategory],
+        matchScore: 99,
+        reason: `🎯 Из вашего виш-листа! Вы запланировали эту книгу — рекомендуем взяться за неё в категории «${focusCategory === 'all' ? 'Главный ТОП-20' : focusCategory}».`,
+        description: wb.notes ? `Ваша заметка: «${wb.notes}»` : 'Книга из вашего персонального списка «Хочу прочитать». Наивысший приоритет к чтению.',
+        estimatedPages: wb.pages || 350,
+        keyThemes: wb.genres && wb.genres.length > 0 ? wb.genres : ['Виш-лист', 'В планах'],
+        coverColor: wb.coverColor || '#8A5A36',
+        isWishlist: true,
+      });
+    }
+  });
+
+  // 2. SECOND: Fill remaining slots up to 20 strictly from the curated Top-20 for this category!
+  const curatedList = getTop20ForCategory(focusCategory, allExcluded);
+  curatedList.forEach((item) => {
+    if (result.length >= 20) return;
+    const t = item.title.toLowerCase().trim();
+    if (!addedTitles.has(t) && !excludedSet.has(t)) {
+      addedTitles.add(t);
+      result.push({
+        id: item.id || `client-${item.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
+        title: item.title,
+        author: item.author,
+        genres: item.genres,
+        matchScore: Math.max(75, 98 - result.length),
+        reason: item.reason,
+        description: item.description,
+        estimatedPages: item.estimatedPages,
+        keyThemes: item.keyThemes,
+        coverColor: item.coverColor,
+        isWishlist: false,
+      });
+    }
+  });
+
+  return result.slice(0, 20);
 }
 
 export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
@@ -614,7 +704,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
   }, [userPrefix]);
 
   const getCategoryStorageKey = useCallback((category: string) => {
-    return `my_book_shelf_recs_cat_${category}_${userPrefix}`;
+    return `my_book_shelf_recs_v6_${category}_${userPrefix}`;
   }, [userPrefix]);
 
   // Combine preset categories + any custom genres from user library
@@ -663,15 +753,21 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
         if (raw) {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed.recommendations) && parsed.recommendations.length > 0) {
-            setRecommendationsByCategory((prev) => ({
-              ...prev,
-              [selectedCategory]: parsed.recommendations,
-            }));
-            if (parsed.generatedAt) {
-              setLastGeneratedByCategory((prev) => ({
+            // Guarantee category purity on cache retrieval
+            const pureRecs = parsed.recommendations.filter((b: RecommendedBook) =>
+              isBookMatchingCategory(b, selectedCategory)
+            );
+            if (pureRecs.length >= 15) {
+              setRecommendationsByCategory((prev) => ({
                 ...prev,
-                [selectedCategory]: parsed.generatedAt,
+                [selectedCategory]: pureRecs,
               }));
+              if (parsed.generatedAt) {
+                setLastGeneratedByCategory((prev) => ({
+                  ...prev,
+                  [selectedCategory]: parsed.generatedAt,
+                }));
+              }
             }
           }
         }
@@ -681,7 +777,7 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
     }
   }, [selectedCategory, getCategoryStorageKey]);
 
-  // Excluded titles set (library books + dismissed books)
+  // Excluded titles set (dismissed books)
   const dismissedTitles = useMemo(() => {
     return dismissedBooks.map((b) => b.title.toLowerCase().trim());
   }, [dismissedBooks]);
@@ -695,6 +791,43 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
     books.forEach((b) => set.add(b.title.toLowerCase().trim()));
     return set;
   }, [books]);
+
+  // User books divided by status
+  const userWishlistMap = useMemo(() => {
+    const map = new Map<string, Book>();
+    books.forEach((b) => {
+      if (b.status === 'planned') {
+        map.set(b.title.toLowerCase().trim(), b);
+      }
+    });
+    return map;
+  }, [books]);
+
+  const userCompletedTitles = useMemo(() => {
+    const set = new Set<string>();
+    books.forEach((b) => {
+      if (b.status === 'completed') {
+        set.add(b.title.toLowerCase().trim());
+      }
+    });
+    return set;
+  }, [books]);
+
+  const userReadingTitles = useMemo(() => {
+    const set = new Set<string>();
+    books.forEach((b) => {
+      if (b.status === 'reading') {
+        set.add(b.title.toLowerCase().trim());
+      }
+    });
+    return set;
+  }, [books]);
+
+  // Wishlist books matching the active category with strict genre verification
+  const activeCategoryWishlistBooks = useMemo(() => {
+    const wish = books.filter((b) => b.status === 'planned');
+    return wish.filter((b) => isBookMatchingCategory(b, selectedCategory));
+  }, [books, selectedCategory]);
 
   // Active recommendations for the currently selected category
   const rawCurrentCategoryRecs = useMemo(() => {
@@ -899,23 +1032,51 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
     }
   };
 
-  // Add recommended book to user's library with 1 click
+  // Add recommended book or transition wishlist book with 1 click
   const handleQuickAdd = async (rec: RecommendedBook, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setAddingTitle(rec.title);
     try {
+      const existingWishlist = userWishlistMap.get(rec.title.toLowerCase().trim());
       await onAddBookToLibrary({
+        id: existingWishlist ? existingWishlist.id : undefined,
         title: rec.title,
-        authors: [rec.author],
+        authors: existingWishlist?.authors?.length ? existingWishlist.authors : [rec.author],
         status: 'reading',
         genres: rec.genres,
         pages: rec.estimatedPages,
         coverColor: rec.coverColor,
-        notes: `Рекомендовано в ТОП-20 [${selectedCategory === 'all' ? 'Главный' : selectedCategory}] (${rec.matchScore}% совпадение):\n${rec.reason}`,
+        startDate: new Date().toISOString().split('T')[0],
+        notes: existingWishlist?.notes 
+          ? `${existingWishlist.notes}\n[Начато из ТОП-20: ${selectedCategory === 'all' ? 'Главный' : selectedCategory}]`
+          : `Рекомендовано в ТОП-20 [${selectedCategory === 'all' ? 'Главный' : selectedCategory}] (${rec.matchScore}% совпадение):\n${rec.reason}`,
       });
       setAddedBookTitles((prev) => new Set(prev).add(rec.title));
     } catch (err) {
       console.error('Failed to add book to library:', err);
+    } finally {
+      setAddingTitle(null);
+    }
+  };
+
+  // 1-Click start reading a book from the user's wishlist spotlight
+  const handleStartReadingWishlist = async (wb: Book, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setAddingTitle(wb.title);
+    try {
+      await onAddBookToLibrary({
+        id: wb.id,
+        title: wb.title,
+        authors: wb.authors,
+        status: 'reading',
+        genres: wb.genres,
+        pages: wb.pages,
+        coverColor: wb.coverColor,
+        startDate: new Date().toISOString().split('T')[0],
+      });
+      setAddedBookTitles((prev) => new Set(prev).add(wb.title));
+    } catch (err) {
+      console.error('Failed to start reading wishlist book:', err);
     } finally {
       setAddingTitle(null);
     }
@@ -1076,6 +1237,67 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
         )}
       </div>
 
+      {/* WISHLIST SPOTLIGHT IN THIS CATEGORY */}
+      {activeCategoryWishlistBooks.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-50/90 via-[#FAF6EE] to-[#F5EFE6] border border-amber-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3 animate-in fade-in duration-200">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">⭐</span>
+              <div>
+                <h3 className="font-display font-semibold text-sm sm:text-base text-[#24211D]">
+                  Из вашего виш-листа в категории «{activeCategoryMeta.label}» ({activeCategoryWishlistBooks.length})
+                </h3>
+                <p className="text-xs text-[#7A7265] mt-0.5">
+                  Книги, которые вы сами запланировали к прочтению — они возглавляют персональный ТОП-20:
+                </p>
+              </div>
+            </div>
+            <span className="text-[11px] font-mono text-amber-900 bg-amber-100/90 border border-amber-300 px-2.5 py-1 rounded font-semibold hidden sm:inline shrink-0">
+              Вы хотите прочитать
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+            {activeCategoryWishlistBooks.map((wb) => {
+              const isAddingWb = addingTitle === wb.title;
+              const isReadingWb = userReadingTitles.has(wb.title.toLowerCase().trim()) || addedBookTitles.has(wb.title);
+
+              return (
+                <div
+                  key={wb.id}
+                  className="p-3 bg-white/95 border border-amber-200 rounded-lg flex items-center justify-between gap-3 shadow-2xs hover:border-amber-300 hover:shadow-xs transition-all"
+                >
+                  <div className="min-w-0">
+                    <h4 className="font-semibold text-xs text-[#24211D] truncate">
+                      «{wb.title}»
+                    </h4>
+                    <p className="text-[11px] text-[#7A7265] truncate mt-0.5">
+                      {wb.authors?.join(', ') || 'Автор'}
+                    </p>
+                  </div>
+
+                  {isReadingWb ? (
+                    <span className="text-[11px] font-mono text-blue-700 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded font-medium shrink-0">
+                      Читаю
+                    </span>
+                  ) : (
+                    <button
+                      onClick={(e) => handleStartReadingWishlist(wb, e)}
+                      disabled={isAddingWb}
+                      className="px-2.5 py-1 text-xs font-semibold text-white bg-[#8A5A36] hover:bg-[#6F4729] rounded flex items-center gap-1 shrink-0 shadow-2xs active:scale-95 transition-all"
+                      title="Начать читать эту книгу из виш-листа"
+                    >
+                      <BookOpen className="w-3 h-3 text-amber-200" />
+                      <span>{isAddingWb ? '...' : 'Начать'}</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Control Bar: Reading Mood & Search */}
       <div className="space-y-2.5 bg-[#FAF8F5] p-3 sm:p-3.5 border border-[#E8E2D8] rounded-lg">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1207,14 +1429,22 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
         /* DEDICATED TOP-20 CARDS FOR THE SELECTED CATEGORY */
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
           {displayedRecommendations.map((book, idx) => {
-            const isAlreadyInLibrary = libraryTitlesSet.has(book.title.toLowerCase().trim()) || addedBookTitles.has(book.title);
+            const titleKey = book.title.toLowerCase().trim();
+            const isWishlist = book.isWishlist || userWishlistMap.has(titleKey);
+            const isCompleted = userCompletedTitles.has(titleKey);
+            const isReading = userReadingTitles.has(titleKey);
+            const isAddedNow = addedBookTitles.has(book.title);
             const isAdding = addingTitle === book.title;
 
             return (
               <div
                 key={book.id || idx}
                 onClick={() => setInspectedBook(book)}
-                className="relative bg-[#FAF8F5] border border-[#E8E2D8] hover:border-[#C4B7A5] rounded-xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden cursor-pointer"
+                className={`relative rounded-xl p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between group overflow-hidden cursor-pointer border ${
+                  isWishlist
+                    ? 'bg-[#FAF7F0] border-amber-300 ring-1 ring-amber-200/60 hover:border-amber-400'
+                    : 'bg-[#FAF8F5] border-[#E8E2D8] hover:border-[#C4B7A5]'
+                }`}
               >
                 {/* Top Section */}
                 <div>
@@ -1239,6 +1469,11 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
                           <span className="text-[10px] font-mono font-bold text-[#8A5A36] bg-[#EFE9DF] px-1.5 py-0.5 rounded">
                             #{idx + 1} в категории
                           </span>
+                          {isWishlist && (
+                            <span className="text-[10px] font-mono font-bold text-amber-900 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded flex items-center gap-1 shadow-2xs">
+                              <span>⭐</span> В вашем виш-листе
+                            </span>
+                          )}
                           <span className="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-semibold">
                             {book.matchScore}% совпадение
                           </span>
@@ -1257,36 +1492,45 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
                       {/* "Не рекомендовать" Button */}
                       <button
                         onClick={(e) => handleDismissBook(book, e)}
-                        className="p-1.5 sm:px-2 sm:py-1.5 text-[#8A8172] hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 rounded-md text-xs font-medium transition-colors"
+                        className="p-1.5 sm:px-2.5 sm:py-1.5 text-[#8A8172] hover:text-rose-700 hover:bg-rose-50 border border-[#E8E2D8] hover:border-rose-200 rounded-md text-xs font-medium transition-colors flex items-center gap-1"
                         title="Больше не рекомендовать эту книгу"
                       >
-                        <EyeOff className="w-3.5 h-3.5" />
-                        <span className="hidden lg:inline ml-1 text-[11px]">Не рекомендовать</span>
+                        <EyeOff className="w-3.5 h-3.5 shrink-0" />
+                        <span className="hidden sm:inline text-[11px] whitespace-nowrap">Не рекомендовать</span>
                       </button>
 
-                      {/* Quick Add Button */}
-                      <button
-                        onClick={(e) => handleQuickAdd(book, e)}
-                        disabled={isAlreadyInLibrary || isAdding}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                          isAlreadyInLibrary
-                            ? 'bg-[#EBF3EC] text-[#204028] border border-[#CDE1CD] cursor-default'
-                            : 'bg-[#24211D] hover:bg-[#3B342C] text-white shadow-xs active:scale-95'
-                        }`}
-                        title={isAlreadyInLibrary ? 'Книга уже есть в вашей библиотеке' : 'Добавить в список для чтения'}
-                      >
-                        {isAlreadyInLibrary ? (
-                          <>
-                            <Check className="w-3.5 h-3.5 text-emerald-600" />
-                            <span className="hidden sm:inline">На полке</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>{isAdding ? '...' : '+ Читать'}</span>
-                          </>
-                        )}
-                      </button>
+                      {/* Quick Action Button */}
+                      {isWishlist ? (
+                        <button
+                          onClick={(e) => handleQuickAdd(book, e)}
+                          disabled={isAdding}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#8A5A36] hover:bg-[#6F4729] text-white shadow-xs active:scale-95 transition-all"
+                          title="Начать читать эту книгу из вашего виш-листа"
+                        >
+                          <BookOpen className="w-3.5 h-3.5 text-amber-200" />
+                          <span>{isAdding ? '...' : 'Начать читать'}</span>
+                        </button>
+                      ) : isReading || isAddedNow ? (
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-blue-50 text-blue-800 border border-blue-200">
+                          <BookOpen className="w-3.5 h-3.5 text-blue-600" />
+                          <span className="hidden sm:inline">Читаю</span>
+                        </div>
+                      ) : isCompleted ? (
+                        <div className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="hidden sm:inline">Прочитано</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => handleQuickAdd(book, e)}
+                          disabled={isAdding}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-[#24211D] hover:bg-[#3B342C] text-white shadow-xs active:scale-95 transition-all"
+                          title="Добавить в список для чтения"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isAdding ? '...' : '+ Читать'}</span>
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1483,37 +1727,58 @@ export const RecommendationsView: React.FC<RecommendationsViewProps> = ({
             {/* Modal Footer with Actions */}
             <div className="p-4 border-t border-[#E8E2D8] bg-[#F7F4EF] flex items-center justify-between gap-3">
               <button
-                onClick={() => handleDismissBook(inspectedBook)}
+                onClick={() => {
+                  handleDismissBook(inspectedBook);
+                  setInspectedBook(null);
+                }}
                 className="px-3 py-2 text-xs font-medium text-rose-700 hover:text-rose-900 hover:bg-rose-50 border border-rose-200 rounded-lg transition-colors flex items-center gap-1.5"
               >
                 <EyeOff className="w-3.5 h-3.5" />
                 <span>Не рекомендовать</span>
               </button>
 
-              <button
-                onClick={() => {
-                  handleQuickAdd(inspectedBook);
-                  setInspectedBook(null);
-                }}
-                disabled={libraryTitlesSet.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title)}
-                className={`px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-xs transition-all ${
-                  libraryTitlesSet.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title)
-                    ? 'bg-emerald-100 text-emerald-800 cursor-default'
-                    : 'bg-[#24211D] hover:bg-[#3B342C] text-white active:scale-95'
-                }`}
-              >
-                {libraryTitlesSet.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title) ? (
-                  <>
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>Уже на книжной полке</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-4 h-4" />
-                    <span>Добавить на полку («Читаю»)</span>
-                  </>
-                )}
-              </button>
+              {userWishlistMap.has(inspectedBook.title.toLowerCase().trim()) ? (
+                <button
+                  onClick={() => {
+                    handleQuickAdd(inspectedBook);
+                    setInspectedBook(null);
+                  }}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-xs bg-[#8A5A36] hover:bg-[#6F4729] text-white active:scale-95 transition-all"
+                >
+                  <BookOpen className="w-4 h-4 text-amber-200" />
+                  <span>Начать читать (из виш-листа)</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => {
+                    handleQuickAdd(inspectedBook);
+                    setInspectedBook(null);
+                  }}
+                  disabled={userCompletedTitles.has(inspectedBook.title.toLowerCase().trim()) || userReadingTitles.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title)}
+                  className={`px-4 py-2 text-xs font-semibold rounded-lg flex items-center gap-1.5 shadow-xs transition-all ${
+                    userCompletedTitles.has(inspectedBook.title.toLowerCase().trim()) || userReadingTitles.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title)
+                      ? 'bg-emerald-100 text-emerald-800 cursor-default'
+                      : 'bg-[#24211D] hover:bg-[#3B342C] text-white active:scale-95'
+                  }`}
+                >
+                  {userCompletedTitles.has(inspectedBook.title.toLowerCase().trim()) ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                      <span>Уже прочитано</span>
+                    </>
+                  ) : userReadingTitles.has(inspectedBook.title.toLowerCase().trim()) || addedBookTitles.has(inspectedBook.title) ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-blue-600" />
+                      <span>Читаю сейчас</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="w-4 h-4" />
+                      <span>Добавить в список («Читаю»)</span>
+                    </>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

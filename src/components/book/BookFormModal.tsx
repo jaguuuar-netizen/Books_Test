@@ -344,7 +344,7 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
                 <label className="block text-xs font-semibold text-[#24211D] mb-1">
                   Статус чтения
                 </label>
-                <div className="flex items-center gap-2 p-1 bg-[#EFE9DF] rounded-md max-w-xs">
+                <div className="flex items-center gap-1.5 p-1 bg-[#EFE9DF] rounded-md max-w-md">
                   <button
                     type="button"
                     onClick={() => handleStatusChange('reading')}
@@ -355,6 +355,17 @@ export const BookFormModal: React.FC<BookFormModalProps> = ({
                     }`}
                   >
                     Сейчас читаю
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleStatusChange('planned')}
+                    className={`flex-1 py-1.5 text-xs font-medium rounded transition-colors ${
+                      status === 'planned'
+                        ? 'bg-[#FAF8F5] text-[#8A5A36] shadow-sm font-semibold'
+                        : 'text-[#7A7265] hover:text-[#24211D]'
+                    }`}
+                  >
+                    Хочу прочитать (Виш-лист)
                   </button>
                   <button
                     type="button"

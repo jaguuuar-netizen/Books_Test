@@ -70,7 +70,7 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
         {/* Top Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E8E2D8] bg-[#F7F4EF]">
           <div className="flex items-center gap-2 text-xs font-mono text-[#7A7265] uppercase tracking-wider">
-            <span>{book.status === 'completed' ? 'Прочитанная книга' : 'Сейчас читаю'}</span>
+            <span>{book.status === 'completed' ? 'Прочитанная книга' : book.status === 'planned' ? 'В планах (Виш-лист)' : 'Сейчас читаю'}</span>
           </div>
 
           <button
