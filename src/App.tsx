@@ -782,6 +782,9 @@ export default function App() {
         onRevertToReading={handleRevertToReading}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        books={visibleBooks}
+        onAddBookToLibrary={handleAddRecommendedBook}
+        onSelectBook={(b) => setSelectedBook(b)}
       />
 
       {/* Add / Edit Book Modal */}

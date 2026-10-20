@@ -70,7 +70,7 @@ interface RecommendedBookItem {
   coverColor: string;
 }
 
-import { TOP20_BY_CATEGORY, getTop20ForCategory, CuratedBook } from './src/data/curatedTop20';
+import { TOP20_BY_CATEGORY, getTop20ForCategory, getCuratedSimilarBooks, CuratedBook } from './src/data/curatedTop20';
 
 interface BookInput {
   id?: string;
@@ -428,6 +428,197 @@ ${genreDirective}${moodStr}
     });
   }
 });
+
+// Book-Specific Recommendations API endpoint ("Похожие книги к выбранной книге")
+app.post('/api/book-recommendations', async (req, res) => {
+  const { book, userBooks, excludedTitles } = (req.body || {}) as {
+    book?: BookInput;
+    userBooks?: BookInput[];
+    excludedTitles?: string[];
+  };
+
+  if (!book || !book.title) {
+    return res.status(400).json({ success: false, error: 'Book data with title is required' });
+  }
+
+  const targetTitle = String(book.title).trim();
+  const targetAuthors = Array.isArray(book.authors) ? book.authors : [];
+  const targetGenres = Array.isArray(book.genres) ? book.genres : [];
+  const targetNotes = String(book.notes || '').slice(0, 300);
+
+  const booksArr: BookInput[] = Array.isArray(userBooks) ? userBooks : [];
+  const completedTitles = booksArr
+    .filter((b) => b.status === 'completed')
+    .map((b) => String(b.title || '').toLowerCase().trim());
+  const dismissed = Array.isArray(excludedTitles)
+    ? excludedTitles.map((t) => String(t || '').toLowerCase().trim())
+    : [];
+  const allExcluded = Array.from(new Set([targetTitle.toLowerCase(), ...completedTitles, ...dismissed]));
+
+  const wishlistBooks = booksArr.filter((b) => b.status === 'planned');
+  const wishlistTitlesSet = new Set(wishlistBooks.map((b) => String(b.title || '').toLowerCase().trim()));
+
+  // 1. Check if user already has matching books in their wishlist
+  const matchingWishlist = wishlistBooks.filter((wb) => {
+    const t = (wb.title || '').toLowerCase().trim();
+    if (!t || allExcluded.includes(t)) return false;
+    // same author
+    if (wb.authors?.some((a) => targetAuthors.some((ta) => ta.toLowerCase() === a.toLowerCase()))) return true;
+    // common genre
+    if (wb.genres?.some((g) => targetGenres.some((tg) => tg.toLowerCase() === g.toLowerCase()))) return true;
+    return false;
+  });
+
+  const finalRecs: any[] = [];
+  const usedTitles = new Set<string>();
+
+  // Prepend matching wishlist books
+  matchingWishlist.forEach((wb, idx) => {
+    const t = (wb.title || '').toLowerCase().trim();
+    if (!usedTitles.has(t)) {
+      usedTitles.add(t);
+      finalRecs.push({
+        id: wb.id || `wish-sim-${idx}`,
+        title: wb.title,
+        author: (wb.authors && wb.authors.length > 0) ? wb.authors.join(', ') : 'Автор',
+        genres: wb.genres && wb.genres.length > 0 ? wb.genres : targetGenres,
+        matchScore: 98,
+        similarityReason: `⭐ Из вашего виш-листа! Книга уже в ваших планах и идеально перекликается с «${targetTitle}».`,
+        description: wb.notes ? `Ваша заметка: «${wb.notes}»` : 'Книга из вашего персонального списка «Хочу прочитать».',
+        estimatedPages: wb.pages || 350,
+        keyThemes: wb.genres && wb.genres.length > 0 ? wb.genres : ['Виш-лист'],
+        coverColor: '#8A5A36',
+        isWishlist: true,
+      });
+    }
+  });
+
+  try {
+    const prompt = `Ты — эрудированный литературный критик и рекомендательный сервис.
+Пользователь открыл карточку книги в своей библиотеке и нажал кнопку «Рекомендации»:
+- Название: «${targetTitle}»
+- Авторы: ${targetAuthors.join(', ') || 'Не указан'}
+- Жанры: ${targetGenres.join(', ') || 'Художественная литература'}
+${targetNotes ? `- Заметки читателя: "${targetNotes}"` : ''}
+
+Подбери от 6 до 8 великолепных книг, максимально похожих на «${targetTitle}» по духу, атмосфере, сюжетным мотивам, темам, стилю или авторской традиции.
+ПРАВИЛА:
+1. Выдай от 6 до 8 книг.
+2. Не включай саму книгу «${targetTitle}».
+3. Не включай уже прочитанные или скрытые книги: [${allExcluded.slice(0, 30).join(', ')}].
+4. В поле "similarityReason" подробно и понятно объясни, чем именно книга похожа на «${targetTitle}» (1-2 емких предложения).
+5. Жанры должны соответствовать духу оригинала.
+
+Формат: СТРОГО JSON-массив из 6-8 объектов:
+[
+  {
+    "id": "sim-1",
+    "title": "Название книги на русском",
+    "author": "Имя Фамилия автора",
+    "genres": ["Жанр 1", "Жанр 2"],
+    "matchScore": 96,
+    "similarityReason": "Объяснение сходства с «${targetTitle}»",
+    "description": "Краткая сюжетная интрига (2 предложения)",
+    "estimatedPages": 350,
+    "keyThemes": ["Тема 1", "Тема 2", "Тема 3"],
+    "coverColor": "#2C3E50"
+  }
+]`;
+
+    let response: any = null;
+    try {
+      const callPromise = ai.models.generateContent({
+        model: 'gemini-3.1-flash-lite',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('AI similarity generation timeout')), 10000)
+      );
+      response = await Promise.race([callPromise, timeoutPromise]);
+    } catch (apiErr: any) {
+      console.warn('Gemini book similarity call error or timeout, activating curated fallback:', apiErr?.message);
+    }
+
+    let recommendations: any[] = [];
+    if (response && response.text) {
+      const responseText = response.text.trim();
+      try {
+        recommendations = JSON.parse(responseText);
+      } catch {
+        const jsonMatch = responseText.match(/\[[\s\S]*\]/);
+        if (jsonMatch) {
+          try {
+            recommendations = JSON.parse(jsonMatch[0]);
+          } catch {}
+        }
+      }
+    }
+
+    // Add validated AI recommendations
+    if (Array.isArray(recommendations)) {
+      for (const item of recommendations) {
+        if (finalRecs.length >= 8) break;
+        const titleLower = String(item.title || '').toLowerCase().trim();
+        if (titleLower && !allExcluded.includes(titleLower) && !usedTitles.has(titleLower)) {
+          usedTitles.add(titleLower);
+          finalRecs.push({
+            id: item.id || `sim-${Date.now()}-${finalRecs.length + 1}`,
+            title: String(item.title),
+            author: String(item.author || 'Автор'),
+            genres: Array.isArray(item.genres) && item.genres.length > 0 ? item.genres : targetGenres,
+            matchScore: typeof item.matchScore === 'number' ? Math.min(99, Math.max(70, Math.round(item.matchScore))) : 95,
+            similarityReason: String(item.similarityReason || `Схожие мотивы и настроение, как и в «${targetTitle}».`),
+            description: String(item.description || 'Увлекательное произведение со схожей глубиной и стилем.'),
+            estimatedPages: typeof item.estimatedPages === 'number' ? item.estimatedPages : 350,
+            keyThemes: Array.isArray(item.keyThemes) && item.keyThemes.length > 0 ? item.keyThemes : ['Похожее'],
+            coverColor: typeof item.coverColor === 'string' && item.coverColor.startsWith('#') ? item.coverColor : '#2C3E50',
+            isWishlist: wishlistTitlesSet.has(titleLower),
+          });
+        }
+      }
+    }
+
+    // Fill remaining up to 8 from curatedSimilar
+    const curatedSim = getCuratedSimilarBooks({ title: targetTitle, authors: targetAuthors, genres: targetGenres }, allExcluded);
+    for (const cur of curatedSim) {
+      if (finalRecs.length >= 8) break;
+      const cTitleLower = cur.title.toLowerCase().trim();
+      if (!usedTitles.has(cTitleLower) && !allExcluded.includes(cTitleLower)) {
+        usedTitles.add(cTitleLower);
+        finalRecs.push({
+          ...cur,
+          isWishlist: wishlistTitlesSet.has(cTitleLower),
+        });
+      }
+    }
+
+    return res.json({
+      success: true,
+      targetBook: targetTitle,
+      count: finalRecs.length,
+      recommendations: finalRecs,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (error: any) {
+    console.error('Book recommendations error:', error);
+    const fallbackList = getCuratedSimilarBooks({ title: targetTitle, authors: targetAuthors, genres: targetGenres }, allExcluded).map((c) => ({
+      ...c,
+      isWishlist: wishlistTitlesSet.has(c.title.toLowerCase().trim()),
+    }));
+    return res.json({
+      success: true,
+      isFallback: true,
+      targetBook: targetTitle,
+      count: fallbackList.length,
+      recommendations: fallbackList,
+      generatedAt: new Date().toISOString(),
+    });
+  }
+});
+
 
 // Setup Vite in development or serve static in production
 async function startServer() {

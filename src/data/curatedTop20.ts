@@ -2263,3 +2263,79 @@ export function getTop20ForCategory(
 
   return customMatching.slice(0, 20);
 }
+
+// Returns books similar to a specific book based on genre, author, and key themes
+export function getCuratedSimilarBooks(
+  targetBook: { title: string; authors?: string[]; genres?: string[] },
+  excludedTitles: string[] = []
+): (CuratedBook & { similarityReason: string })[] {
+  const targetTitleLower = (targetBook.title || '').toLowerCase().trim();
+  const excludedLower = new Set([targetTitleLower, ...excludedTitles.map((t) => t.toLowerCase().trim())]);
+  const targetAuthors = (targetBook.authors || []).map((a) => a.toLowerCase().trim());
+  const targetGenres = (targetBook.genres || []).map((g) => g.toLowerCase().trim());
+
+  const scored: Array<{ book: CuratedBook; score: number; reason: string }> = [];
+  const seenTitles = new Set<string>();
+
+  for (const list of Object.values(TOP20_BY_CATEGORY)) {
+    for (const b of list) {
+      const bTitleLower = b.title.toLowerCase().trim();
+      if (excludedLower.has(bTitleLower) || seenTitles.has(bTitleLower)) continue;
+      seenTitles.add(bTitleLower);
+
+      let score = 50;
+      let matchedReason = '';
+
+      // Check author match
+      const bAuthorLower = b.author.toLowerCase();
+      if (targetAuthors.some((a) => a && bAuthorLower.includes(a))) {
+        score += 45;
+        matchedReason = `От того же выдающегося автора (${b.author}) в схожем авторском стиле.`;
+      }
+
+      // Check genre matches
+      const bGenresLower = b.genres.map((g) => g.toLowerCase());
+      const commonGenres = targetGenres.filter((g) => g && bGenresLower.some((bg) => bg.includes(g) || g.includes(bg)));
+      if (commonGenres.length > 0) {
+        score += commonGenres.length * 15;
+        if (!matchedReason) {
+          matchedReason = `Схожие жанровые мотивы и атмосфера (${b.genres.slice(0, 2).join(', ')}), как и в «${targetBook.title}».`;
+        }
+      }
+
+      if (score >= 65) {
+        scored.push({
+          book: b,
+          score,
+          reason: matchedReason || `Прекрасно дополнит впечатления от прочтения «${targetBook.title}».`,
+        });
+      }
+    }
+  }
+
+  // Fallback if few direct matches
+  if (scored.length < 6) {
+    for (const list of Object.values(TOP20_BY_CATEGORY)) {
+      for (const b of list) {
+        const bTitleLower = b.title.toLowerCase().trim();
+        if (excludedLower.has(bTitleLower) || seenTitles.has(bTitleLower)) continue;
+        seenTitles.add(bTitleLower);
+        scored.push({
+          book: b,
+          score: 60,
+          reason: `Признанное произведение, созвучное настроению «${targetBook.title}».`,
+        });
+        if (scored.length >= 8) break;
+      }
+      if (scored.length >= 8) break;
+    }
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+
+  return scored.slice(0, 8).map((item, idx) => ({
+    ...item.book,
+    matchScore: Math.min(98, Math.max(78, 97 - idx * 2)),
+    similarityReason: item.reason,
+  }));
+}

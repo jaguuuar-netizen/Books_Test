@@ -3,6 +3,7 @@ import { User } from 'firebase/auth';
 import { Book } from '../../types/book';
 import { BookCover } from '../common/BookCover';
 import { formatDateRU } from '../../utils/date';
+import { BookRecommendationsModal } from './BookRecommendationsModal';
 import { 
   X, 
   Edit3, 
@@ -17,7 +18,8 @@ import {
   RotateCcw,
   Gauge,
   Lock,
-  Cloud
+  Cloud,
+  Sparkles
 } from 'lucide-react';
 
 interface BookDetailModalProps {
@@ -29,6 +31,9 @@ interface BookDetailModalProps {
   onRevertToReading: (book: Book) => void;
   currentUser?: User | null;
   onOpenAuthModal?: () => void;
+  books?: Book[];
+  onAddBookToLibrary?: (newBook: Partial<Book>) => Promise<void>;
+  onSelectBook?: (book: Book) => void;
 }
 
 export const BookDetailModal: React.FC<BookDetailModalProps> = ({
@@ -40,9 +45,13 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
   onRevertToReading,
   currentUser,
   onOpenAuthModal,
+  books = [],
+  onAddBookToLibrary,
+  onSelectBook,
 }) => {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRevertConfirm, setShowRevertConfirm] = useState(false);
+  const [showSimilarModal, setShowSimilarModal] = useState(false);
 
   if (!book) return null;
 
@@ -73,12 +82,23 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
             <span>{book.status === 'completed' ? 'Прочитанная книга' : book.status === 'planned' ? 'В планах (Виш-лист)' : 'Сейчас читаю'}</span>
           </div>
 
-          <button
-            onClick={onClose}
-            className="p-1 rounded-md text-[#7A7265] hover:text-[#24211D] hover:bg-[#EAE4DC] transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowSimilarModal(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#8A5A36] bg-[#F5EFE6] hover:bg-[#EFE7DA] border border-[#E0D5C1] hover:border-[#8A5A36] rounded-md transition-all shadow-2xs cursor-pointer active:scale-95"
+              title="Найти похожие книги и рекомендации к этому произведению"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#8A5A36]" />
+              <span>Рекомендации</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md text-[#7A7265] hover:text-[#24211D] hover:bg-[#EAE4DC] transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Notice for unauthorized visitors */}
@@ -310,6 +330,14 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowSimilarModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-[#8A5A36] bg-[#F5EFE6] hover:bg-[#EFE7DA] border border-[#E0D5C1] hover:border-[#8A5A36] rounded transition-all shadow-2xs cursor-pointer active:scale-95"
+              title="Подобрать похожие книги и рекомендации"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-[#8A5A36]" />
+              <span>Похожие книги</span>
+            </button>
+            <button
               onClick={() => {
                 if (!currentUser) {
                   onClose();
@@ -394,6 +422,24 @@ export const BookDetailModal: React.FC<BookDetailModalProps> = ({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Book-Specific Recommendations Modal */}
+        {showSimilarModal && (
+          <BookRecommendationsModal
+            targetBook={book}
+            isOpen={showSimilarModal}
+            onClose={() => setShowSimilarModal(false)}
+            books={books}
+            currentUser={currentUser}
+            onOpenAuthModal={onOpenAuthModal}
+            onAddBookToLibrary={async (newBook) => {
+              if (onAddBookToLibrary) {
+                await onAddBookToLibrary(newBook);
+              }
+            }}
+            onSelectBook={onSelectBook}
+          />
         )}
       </div>
     </div>
