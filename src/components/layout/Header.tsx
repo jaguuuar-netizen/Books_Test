@@ -1,7 +1,7 @@
 import { Plus, Cloud, Check, RefreshCw, Lock } from 'lucide-react';
 import { User } from 'firebase/auth';
 
-export type NavTab = 'dashboard' | 'shelf' | 'recommendations' | 'statistics' | 'calendar' | 'genres';
+export type NavTab = 'dashboard' | 'shelf' | 'statistics' | 'calendar' | 'genres';
 
 interface HeaderProps {
   currentTab: NavTab;
@@ -11,6 +11,7 @@ interface HeaderProps {
   onOpenWindowsModal: () => void;
   currentUser: User | null;
   onOpenAuthModal: () => void;
+  onTriggerSync?: () => void;
   isSyncing?: boolean;
   lastSyncedAt?: Date | null;
   hasConnectedSheets?: boolean;
@@ -24,6 +25,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenWindowsModal,
   currentUser,
   onOpenAuthModal,
+  onTriggerSync,
   isSyncing = false,
   lastSyncedAt = null,
   hasConnectedSheets = false,
@@ -34,16 +36,16 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Zone 1: Brand Wordmark in display face */}
         <button
           onClick={() => onSelectTab('dashboard')}
-          className="text-xl font-display font-semibold tracking-tight text-[#24211D] hover:text-[#5E3023] transition-colors whitespace-nowrap shrink-0 text-left"
+          className="text-xl font-display font-semibold tracking-tight text-[#24211D] hover:text-[#5E3023] transition-colors whitespace-nowrap shrink-0 text-left cursor-pointer"
         >
           My Book Shelf
         </button>
 
-        {/* Zone 2: 4-5 concise single-line nav links */}
+        {/* Zone 2: 4-5 concise single-line nav links (clean and focused, no recommendation bloat) */}
         <nav className="hidden md:flex items-center gap-6 text-sm font-medium text-[#6B6357]">
           <button
             onClick={() => onSelectTab('dashboard')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 ${
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 cursor-pointer ${
               currentTab === 'dashboard'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
@@ -53,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onSelectTab('shelf')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 ${
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 cursor-pointer ${
               currentTab === 'shelf'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
@@ -62,19 +64,8 @@ export const Header: React.FC<HeaderProps> = ({
             Полка
           </button>
           <button
-            onClick={() => onSelectTab('recommendations')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 flex items-center gap-1.5 ${
-              currentTab === 'recommendations'
-                ? 'text-[#24211D] border-[#24211D] font-semibold'
-                : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
-            }`}
-            title="Персональный ИИ ТОП-20 книг"
-          >
-            <span>Рекомендации</span>
-          </button>
-          <button
             onClick={() => onSelectTab('statistics')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 inline-flex items-center gap-1.5 ${
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 inline-flex items-center gap-1.5 cursor-pointer ${
               currentTab === 'statistics'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
@@ -89,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onSelectTab('calendar')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 ${
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 cursor-pointer ${
               currentTab === 'calendar'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
@@ -99,7 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={() => onSelectTab('genres')}
-            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 ${
+            className={`whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 cursor-pointer ${
               currentTab === 'genres'
                 ? 'text-[#24211D] border-[#24211D] font-semibold'
                 : 'border-transparent hover:text-[#24211D] hover:border-[#D1C7B7]'
@@ -109,15 +100,15 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <button
             onClick={onOpenWindowsModal}
-            className="whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A5A36] font-semibold"
+            className="whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A5A36] font-semibold cursor-pointer"
             title="Установка программы для Windows"
           >
             Windows
           </button>
           <button
             onClick={onOpenSettingsModal}
-            className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A8172]"
-            title="Google Таблицы, ИИ, импорт и экспорт"
+            className="inline-flex items-center gap-1.5 whitespace-nowrap shrink-0 transition-colors pb-0.5 border-b-2 border-transparent hover:text-[#24211D] hover:border-[#D1C7B7] text-xs uppercase tracking-wider text-[#8A8172] cursor-pointer"
+            title="Google Таблицы, импорт и экспорт"
           >
             <span>Таблицы & Данные</span>
             {hasConnectedSheets && (
@@ -127,17 +118,29 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Zone 3: Cloud Sync status + Primary Action */}
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2.5 shrink-0">
+          {currentUser && onTriggerSync && (
+            <button
+              onClick={onTriggerSync}
+              disabled={isSyncing}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded transition-colors bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] cursor-pointer active:scale-95 disabled:opacity-50"
+              title="Нажмите для мгновенной двухсторонней синхронизации ПК и телефона"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-600' : 'text-[#8A5A36]'}`} />
+              <span className="hidden sm:inline">{isSyncing ? 'Синхронизация...' : 'Синхронизировать'}</span>
+            </button>
+          )}
+
           <button
             onClick={onOpenAuthModal}
-            className={`inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap ${
+            className={`inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               currentUser
                 ? 'bg-[#EBF3EC] text-[#204028] hover:bg-[#DEEADB] border border-[#CDE1CD]'
                 : 'bg-[#F1ECE4] text-[#6B6357] hover:text-[#24211D] hover:bg-[#EAE4DC]'
             }`}
             title={
               currentUser 
-                ? `Двусторонняя синхронизация активна (${currentUser.email})${lastSyncedAt ? ' • Обновлено ' + lastSyncedAt.toLocaleTimeString('ru-RU') : ''}` 
+                ? `Двусторонняя синхронизация (${currentUser.email})${lastSyncedAt ? ' • Обновлено ' + lastSyncedAt.toLocaleTimeString('ru-RU') : ''}` 
                 : 'Войти через Google для синхронизации с телефоном'
             }
           >
@@ -151,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
                   </span>
                 )}
-                <span className="truncate max-w-[90px] sm:max-w-[130px]">
+                <span className="truncate max-w-[90px] sm:max-w-[120px]">
                   {currentUser.displayName || currentUser.email?.split('@')[0]}
                 </span>
                 <span className="hidden xl:inline text-[10px] text-emerald-700/80 font-mono">

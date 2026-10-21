@@ -7,19 +7,24 @@ import {
   browserPopupRedirectResolver 
 } from 'firebase/auth';
 import { auth, googleProvider, setCachedAccessToken, clearAccessToken, saveUserSession } from '../../services/firebase';
-import { uploadLocalBooksBatch } from '../../services/cloudSync';
+import { 
+  uploadLocalBooksBatch, 
+  twoWaySyncBooks, 
+  pullAllBooksFromCloud 
+} from '../../services/cloudSync';
 import { Book } from '../../types/book';
 import { 
   X, 
   Cloud, 
-  CloudCheck, 
   Smartphone, 
   Monitor, 
   LogOut, 
   Sparkles, 
   RefreshCw,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  DownloadCloud,
+  UploadCloud
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -28,6 +33,7 @@ interface AuthModalProps {
   currentUser: User | any | null;
   books: Book[];
   onSignOut?: () => void;
+  onSyncComplete?: (updatedBooks: Book[]) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -36,6 +42,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   currentUser,
   books,
   onSignOut,
+  onSyncComplete,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -97,19 +104,60 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
-  const handleManualUpload = async () => {
+  const handleTwoWaySync = async () => {
     if (!currentUser) return;
     setIsLoading(true);
     setErrorMessage('');
     setSyncSuccessMessage('');
     try {
-      const booksToUpload = books;
-      if (!booksToUpload || booksToUpload.length === 0) {
+      const result = await twoWaySyncBooks(currentUser.uid, books);
+      if (onSyncComplete && result.books) {
+        onSyncComplete(result.books);
+      }
+      setSyncSuccessMessage(result.message);
+    } catch (err: any) {
+      console.error('Two-way sync error:', err);
+      setErrorMessage(`Ошибка синхронизации: ${err?.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForcePull = async () => {
+    if (!currentUser) return;
+    setIsLoading(true);
+    setErrorMessage('');
+    setSyncSuccessMessage('');
+    try {
+      const cloudBooks = await pullAllBooksFromCloud(currentUser.uid);
+      if (cloudBooks.length === 0) {
+        setErrorMessage('В базе данных Google Облака пока нет сохранённых книг.');
+        return;
+      }
+      if (onSyncComplete) {
+        onSyncComplete(cloudBooks);
+      }
+      setSyncSuccessMessage(`Успешно загружено ${cloudBooks.length} книг из облака! Ваша книжная полка полностью обновлена.`);
+    } catch (err: any) {
+      console.error('Force pull error:', err);
+      setErrorMessage(`Ошибка загрузки из облака: ${err?.message || err}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleForcePush = async () => {
+    if (!currentUser) return;
+    setIsLoading(true);
+    setErrorMessage('');
+    setSyncSuccessMessage('');
+    try {
+      if (!books || books.length === 0) {
         setErrorMessage('В библиотеке сейчас нет книг для отправки.');
         return;
       }
-      await uploadLocalBooksBatch(currentUser.uid, booksToUpload);
-      setSyncSuccessMessage(`Успешно отправлено ${booksToUpload.length} книг в базу данных Google Облака! Теперь они мгновенно доступны на телефоне.`);
+      await uploadLocalBooksBatch(currentUser.uid, books);
+      setSyncSuccessMessage(`Все ${books.length} книг успешно загружены в облако как основная копия.`);
     } catch (err: any) {
       console.error('Manual upload error:', err);
       setErrorMessage(`Ошибка отправки в облако: ${err?.message || err}`);
@@ -264,23 +312,50 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#EFE9DF]">
-                <button
-                  onClick={handleManualUpload}
-                  disabled={isLoading}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] rounded font-medium text-[#24211D] transition-colors"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  <span>Синхронизировать сейчас</span>
-                </button>
+              <div className="space-y-2.5 pt-2 border-t border-[#EFE9DF]">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                  <button
+                    onClick={handleTwoWaySync}
+                    disabled={isLoading}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors cursor-pointer disabled:opacity-50 shadow-xs"
+                    title="Объединить изменения с телефона и компьютера без потери данных"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+                    <span>Синхронизировать (ПК & Телефон)</span>
+                  </button>
+                </div>
 
-                <button
-                  onClick={handleSignOut}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-rose-700 hover:bg-rose-50 rounded transition-colors"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Выйти из аккаунта</span>
-                </button>
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={handleForcePull}
+                      disabled={isLoading}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] rounded font-medium text-[11px] text-[#24211D] transition-colors cursor-pointer disabled:opacity-50"
+                      title="Загрузить актуальную базу из Google Облака, если на компьютере отображаются старые данные"
+                    >
+                      <DownloadCloud className="w-3.5 h-3.5 text-[#8A5A36]" />
+                      <span>Загрузить из облака</span>
+                    </button>
+
+                    <button
+                      onClick={handleForcePush}
+                      disabled={isLoading}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] rounded font-medium text-[11px] text-[#6B6357] hover:text-[#24211D] transition-colors cursor-pointer disabled:opacity-50"
+                      title="Отправить локальные книги в облако как резервную копию"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5" />
+                      <span>Отправить в облако</span>
+                    </button>
+                  </div>
+
+                  <button
+                    onClick={handleSignOut}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] text-rose-700 hover:bg-rose-50 rounded transition-colors cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Выйти</span>
+                  </button>
+                </div>
               </div>
             </div>
           ) : (

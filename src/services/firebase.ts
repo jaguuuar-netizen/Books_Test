@@ -5,7 +5,10 @@ import {
   signInWithPopup, 
   signOut, 
   User, 
-  browserPopupRedirectResolver 
+  browserPopupRedirectResolver,
+  setPersistence,
+  indexedDBLocalPersistence,
+  browserLocalPersistence
 } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -18,10 +21,32 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Firebase Auth. getAuth(app) in browser environments automatically configures
-// indexedDBLocalPersistence with browserLocalPersistence fallback and browserPopupRedirectResolver.
+// Initialize Firebase Auth with reliable persistence for mobile and desktop browsers
 export const auth = getAuth(app);
+
+if (typeof window !== 'undefined') {
+  setPersistence(auth, indexedDBLocalPersistence).catch(() => {
+    setPersistence(auth, browserLocalPersistence).catch((err) => {
+      console.warn('Firebase auth setPersistence notice:', err);
+    });
+  });
+}
+
 export { browserPopupRedirectResolver };
+
+/**
+ * Ensures Firebase Auth has finished restoring session from storage before executing cloud operations
+ */
+export const ensureAuthReady = async (): Promise<User | null> => {
+  try {
+    if (typeof auth.authStateReady === 'function') {
+      await auth.authStateReady();
+    }
+  } catch (e) {
+    console.warn('ensureAuthReady notice:', e);
+  }
+  return auth.currentUser;
+};
 
 export interface SavedUserSession {
   uid: string;

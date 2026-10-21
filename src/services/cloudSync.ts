@@ -7,7 +7,7 @@ import {
   onSnapshot, 
   writeBatch 
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { db, auth, ensureAuthReady, handleFirestoreError, OperationType } from './firebase';
 import { Book } from '../types/book';
 import { INITIAL_DEMO_BOOKS } from './demoData';
 import { normalizeRussianDate } from '../utils/date';
@@ -124,7 +124,10 @@ export function subscribeToCloudBooks(
       const books: Book[] = [];
       snapshot.forEach((docSnap) => {
         const data = docSnap.data() as Book;
-        books.push(data);
+        books.push({
+          ...data,
+          id: data.id || docSnap.id,
+        });
       });
 
       // Maintain consistent sort order (latest updated/created first)
@@ -162,7 +165,11 @@ export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
     const snapshot = await getDocs(booksCol);
     const books: Book[] = [];
     snapshot.forEach((docSnap) => {
-      books.push(docSnap.data() as Book);
+      const data = docSnap.data() as Book;
+      books.push({
+        ...data,
+        id: data.id || docSnap.id,
+      });
     });
     return books;
   } catch (error) {
@@ -171,38 +178,14 @@ export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
 }
 
 /**
- * Real-time listener for cloud genres.
- */
-export function subscribeToCloudGenres(
-  userId: string,
-  onUpdate: (genres: string[]) => void
-): () => void {
-  const genresCol = collection(db, 'users', userId, 'genres');
-
-  const unsubscribe = onSnapshot(
-    genresCol,
-    (snapshot) => {
-      const genres: string[] = [];
-      snapshot.forEach((docSnap) => {
-        const data = docSnap.data() as { name: string };
-        if (data && data.name) genres.push(data.name);
-      });
-      if (genres.length > 0) {
-        onUpdate(genres);
-      }
-    },
-    (error) => {
-      console.warn('Firestore subscribe genres notice/error:', error);
-    }
-  );
-
-  return unsubscribe;
-}
-
-/**
  * Save single book to cloud in real time.
  */
 export async function saveBookToCloud(userId: string, book: Book): Promise<string> {
+  await ensureAuthReady();
+  if (!auth.currentUser) {
+    throw new Error('Для сохранения книги в облаке требуется подтвердить вход в Google.');
+  }
+
   const safeId = toSafeBookId(book.id);
   const path = `users/${userId}/books/${safeId}`;
   try {
@@ -211,6 +194,7 @@ export async function saveBookToCloud(userId: string, book: Book): Promise<strin
     await setDoc(bookRef, payload);
     return safeId;
   } catch (error) {
+    console.error('saveBookToCloud error:', error);
     handleFirestoreError(error, OperationType.WRITE, path);
   }
 }
@@ -347,6 +331,172 @@ export async function syncAllGenresToCloud(userId: string, genres: string[]): Pr
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);
   }
+}
+
+/**
+ * Real-time listener for cloud genres.
+ */
+export function subscribeToCloudGenres(
+  userId: string,
+  onUpdate: (genres: string[]) => void
+): () => void {
+  const genresCol = collection(db, 'users', userId, 'genres');
+
+  const unsubscribe = onSnapshot(
+    genresCol,
+    (snapshot) => {
+      const genres: string[] = [];
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data() as { name: string };
+        if (data && data.name) genres.push(data.name);
+      });
+      if (genres.length > 0) {
+        onUpdate(genres);
+      }
+    },
+    (error) => {
+      console.warn('Firestore subscribe genres notice/error:', error);
+    }
+  );
+
+  return unsubscribe;
+}
+
+export interface TwoWaySyncResult {
+  success: boolean;
+  books: Book[];
+  downloadedCount: number;
+  uploadedCount: number;
+  message: string;
+}
+
+/**
+ * Intelligent Two-Way Synchronization between local device (PC or Phone) and Google Cloud:
+ * 1. Fetches all latest books currently stored in Firestore.
+ * 2. Compares timestamps:
+ *    - If mobile edited a book more recently than desktop, mobile's edit is preserved and desktop is updated.
+ *    - If desktop edited a book more recently, desktop's edit is saved to the cloud.
+ *    - If books were added on either device, they are merged cleanly into both devices.
+ * 3. Never wipes user data.
+ */
+export async function twoWaySyncBooks(
+  userId: string,
+  localBooks: Book[]
+): Promise<TwoWaySyncResult> {
+  const user = await ensureAuthReady();
+  if (!user || user.uid !== userId) {
+    throw new Error('Для синхронизации требуется авторизованный аккаунт Google.');
+  }
+
+  const cloudBooks = await fetchCloudBooksOnce(userId);
+
+  // If cloud is completely empty, but user has real local books (not demo):
+  if (cloudBooks.length === 0 && localBooks.length > 0 && !isStockDemoBooks(localBooks)) {
+    await syncAllBooksToCloud(userId, localBooks);
+    return {
+      success: true,
+      books: localBooks,
+      downloadedCount: 0,
+      uploadedCount: localBooks.length,
+      message: `Все ${localBooks.length} книг успешно отправлены в Google Облако!`,
+    };
+  }
+
+  // Maps for efficient ID matching
+  const cloudMap = new Map<string, Book>();
+  for (const cb of cloudBooks) {
+    const id = cb.id || toSafeBookId(cb.id);
+    cloudMap.set(id, { ...cb, id });
+  }
+
+  const localMap = new Map<string, Book>();
+  for (const lb of localBooks) {
+    const id = lb.id || toSafeBookId(lb.id);
+    localMap.set(id, { ...lb, id });
+  }
+
+  const mergedBooks: Book[] = [];
+  const booksToUpload: Book[] = [];
+  let downloadedCount = 0;
+  let uploadedCount = 0;
+
+  // 1. Process local books
+  for (const [id, localBook] of localMap.entries()) {
+    const cloudBook = cloudMap.get(id);
+
+    if (!cloudBook) {
+      // Book exists on this device only: upload to cloud so other device gets it
+      booksToUpload.push(localBook);
+      mergedBooks.push(localBook);
+      uploadedCount++;
+    } else {
+      // Exists on both: timestamp comparison
+      const localTime = new Date(localBook.updatedAt || localBook.createdAt || 0).getTime();
+      const cloudTime = new Date(cloudBook.updatedAt || cloudBook.createdAt || 0).getTime();
+
+      if (localTime > cloudTime) {
+        // Local is strictly newer: upload to cloud
+        booksToUpload.push(localBook);
+        mergedBooks.push(localBook);
+        uploadedCount++;
+      } else {
+        // Cloud is newer or equal: use cloud version
+        mergedBooks.push(cloudBook);
+        if (cloudTime > localTime) {
+          downloadedCount++;
+        }
+      }
+    }
+  }
+
+  // 2. Process cloud books that this device doesn't have yet (e.g. added on phone)
+  for (const [id, cloudBook] of cloudMap.entries()) {
+    if (!localMap.has(id)) {
+      mergedBooks.push(cloudBook);
+      downloadedCount++;
+    }
+  }
+
+  // 3. Upload newer local items
+  if (booksToUpload.length > 0) {
+    for (const b of booksToUpload) {
+      await saveBookToCloud(userId, b);
+    }
+  }
+
+  // 4. Sort newest first
+  mergedBooks.sort((a, b) => {
+    const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+
+  return {
+    success: true,
+    books: mergedBooks,
+    downloadedCount,
+    uploadedCount,
+    message: downloadedCount > 0 || uploadedCount > 0
+      ? `Синхронизация завершена: обновлено ${downloadedCount} книг из облака, отправлено ${uploadedCount} изменений.`
+      : 'Все книги полностью синхронизированы и актуальны на всех устройствах!',
+  };
+}
+
+/**
+ * Force pull all books directly from Google Cloud, replacing local state.
+ */
+export async function pullAllBooksFromCloud(userId: string): Promise<Book[]> {
+  const user = await ensureAuthReady();
+  if (!user || user.uid !== userId) {
+    throw new Error('Для загрузки из облака требуется авторизованный аккаунт Google.');
+  }
+  const cloudBooks = await fetchCloudBooksOnce(userId);
+  cloudBooks.sort((a, b) => {
+    const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+    const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+    return timeB - timeA;
+  });
+  return cloudBooks;
 }
 
 // Backward compatibility alias

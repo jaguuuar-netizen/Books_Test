@@ -37,17 +37,6 @@ export const MobileNav: React.FC<MobileNavProps> = ({
         </button>
 
         <button
-          onClick={() => onSelectTab('recommendations')}
-          className={`flex flex-col items-center justify-center min-w-[40px] py-1 px-0.5 transition-colors ${
-            currentTab === 'recommendations' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'
-          }`}
-          title="ИИ-рекомендации книг"
-        >
-          <Sparkles className="w-4 h-4 mb-0.5 text-[#8A5A36]" />
-          <span className="text-[9px] whitespace-nowrap">ИИ Топ</span>
-        </button>
-
-        <button
           onClick={() => onSelectTab('statistics')}
           className={`flex flex-col items-center justify-center min-w-[48px] py-1 px-1 transition-colors ${
             currentTab === 'statistics' ? 'text-[#24211D] font-medium' : 'text-[#8A8172]'

@@ -14,6 +14,8 @@ import {
   deleteBookFromCloud, 
   syncAllBooksToCloud,
   uploadLocalBooksBatch,
+  twoWaySyncBooks,
+  pullAllBooksFromCloud,
   saveGenreToCloud,
   deleteGenreFromCloud,
   isStockDemoBooks
@@ -34,7 +36,7 @@ import { LibraryView } from './components/library/LibraryView';
 import { StatisticsView } from './components/statistics/StatisticsView';
 import { CalendarView } from './components/calendar/CalendarView';
 import { GenresView } from './components/genres/GenresView';
-import { Lock, Cloud } from 'lucide-react';
+import { Lock, Cloud, CheckCircle2 } from 'lucide-react';
 import { BookDetailModal } from './components/book/BookDetailModal';
 import { BookFormModal } from './components/book/BookFormModal';
 import { QuickCompleteModal } from './components/book/QuickCompleteModal';
@@ -42,7 +44,6 @@ import { ExportImportModal } from './components/settings/ExportImportModal';
 import { WindowsInstallModal } from './components/settings/WindowsInstallModal';
 import { AuthModal } from './components/auth/AuthModal';
 import { StatisticsAuthGate } from './components/statistics/StatisticsAuthGate';
-import { RecommendationsView } from './components/recommendations/RecommendationsView';
 
 export default function App() {
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
@@ -60,6 +61,7 @@ export default function App() {
   const [isAuthReady, setIsAuthReady] = useState(() => Boolean(auth.currentUser || cachedSessionRef.current));
   const [isSyncing, setIsSyncing] = useState(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const [syncToastMessage, setSyncToastMessage] = useState<string | null>(null);
   const [sheetsConfig, setSheetsConfig] = useState<GoogleSheetsConfig | null>(() => loadGoogleSheetsConfig());
   const sheetsConfigRef = useRef(sheetsConfig);
   sheetsConfigRef.current = sheetsConfig;
@@ -155,20 +157,66 @@ export default function App() {
             setLastSyncedAt(new Date());
 
             if (cloudBooks && cloudBooks.length > 0) {
-              // Cloud has books: Cloud is the definitive source of truth across all devices
-              setBooks(cloudBooks);
-              await storageService.setAllBooks(cloudBooks);
+              // 1. Reconcile with local books to protect any newer local edits (e.g. made on mobile before reconnect)
+              const localBooks = await storageService.getBooks();
+              const cloudMap = new Map<string, Book>();
+              for (const cb of cloudBooks) {
+                cloudMap.set(cb.id, cb);
+              }
+
+              const newerLocalsToUpload: Book[] = [];
+              const finalMerged: Book[] = [];
+
+              for (const lb of localBooks) {
+                const cb = cloudMap.get(lb.id);
+                if (cb) {
+                  const localTime = new Date(lb.updatedAt || lb.createdAt || 0).getTime();
+                  const cloudTime = new Date(cb.updatedAt || cb.createdAt || 0).getTime();
+                  if (localTime > cloudTime) {
+                    newerLocalsToUpload.push(lb);
+                    finalMerged.push(lb);
+                  } else {
+                    finalMerged.push(cb);
+                  }
+                  cloudMap.delete(lb.id);
+                } else if (!isStockDemoBooks(localBooks)) {
+                  // Book created locally on this device: keep it and schedule upload
+                  newerLocalsToUpload.push(lb);
+                  finalMerged.push(lb);
+                }
+              }
+
+              // Add remaining cloud books (e.g. added from mobile)
+              for (const cb of cloudMap.values()) {
+                finalMerged.push(cb);
+              }
+
+              finalMerged.sort((a, b) => {
+                const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+                const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+                return timeB - timeA;
+              });
+
+              setBooks(finalMerged);
+              await storageService.setAllBooks(finalMerged);
               storageService.setSeeded(true);
+
+              // Automatically propagate any newer local edits to cloud
+              if (newerLocalsToUpload.length > 0) {
+                for (const b of newerLocalsToUpload) {
+                  saveBookToCloud(user.uid, b).catch(console.warn);
+                }
+              }
 
               // Keep selectedBook detail modal live and updated
               setSelectedBook((prev) => {
                 if (!prev) return null;
-                return cloudBooks.find((b) => b.id === prev.id) || null;
+                return finalMerged.find((b) => b.id === prev.id) || null;
               });
             } else {
               // Cloud has 0 books: check if user already has local books to prevent accidental wipe!
               const localBooks = await storageService.getBooks();
-              if (localBooks && localBooks.length > 0) {
+              if (localBooks && localBooks.length > 0 && !isStockDemoBooks(localBooks)) {
                 // Preserve local books and automatically backup to Cloud!
                 try {
                   await uploadLocalBooksBatch(user.uid, localBooks);
@@ -197,16 +245,17 @@ export default function App() {
         });
 
       } else {
-        // Firebase reported null user: only clear if explicitly signed out or no saved session exists
+        // Firebase reported null user
+        if (unsubBooks) {
+          unsubBooks();
+          unsubBooks = null;
+        }
+        if (unsubGenres) {
+          unsubGenres();
+          unsubGenres = null;
+        }
+
         if (explicitlySignedOutRef.current || !getSavedUserSession()) {
-          if (unsubBooks) {
-            unsubBooks();
-            unsubBooks = null;
-          }
-          if (unsubGenres) {
-            unsubGenres();
-            unsubGenres = null;
-          }
           saveUserSession(null);
           cachedSessionRef.current = null;
           storageService.setUserId(null);
@@ -216,8 +265,10 @@ export default function App() {
           setIsSyncing(false);
           setLastSyncedAt(null);
         } else {
-          // Tab backgrounded or network reconnecting on mobile: preserve session
-          console.log('Firebase reported null user, but cached session exists. Keeping session active.');
+          // Firebase session might have refreshed or needs reconnection
+          // Keep local books displayed, but clear currentUser so user can 1-click re-authenticate cleanly
+          setCurrentUser(null);
+          setIsSyncing(false);
         }
       }
     });
@@ -258,29 +309,43 @@ export default function App() {
     return true;
   };
 
+  // Trigger full two-way sync manually (from header button or auth modal)
+  const handleTriggerSync = async () => {
+    if (!currentUser) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const result = await twoWaySyncBooks(currentUser.uid, books);
+      if (result.books && result.books.length > 0) {
+        setBooks(result.books);
+        await storageService.setAllBooks(result.books);
+      }
+      setLastSyncedAt(new Date());
+      setSyncToastMessage(result.message);
+      setTimeout(() => setSyncToastMessage(null), 4000);
+    } catch (err: any) {
+      console.error('Trigger sync error:', err);
+      setSyncToastMessage(`Ошибка синхронизации: ${err?.message || err}`);
+      setTimeout(() => setSyncToastMessage(null), 5000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleSyncComplete = async (updatedBooks: Book[]) => {
+    setBooks(updatedBooks);
+    await storageService.setAllBooks(updatedBooks);
+    setLastSyncedAt(new Date());
+    setSyncToastMessage(`Синхронизировано: ${updatedBooks.length} книг на полке.`);
+    setTimeout(() => setSyncToastMessage(null), 4000);
+  };
+
   const handleOpenAddModal = () => {
     if (!ensureAuthenticated()) return;
     setEditingBook(null);
     setIsAddModalOpen(true);
-  };
-
-  const handleAddRecommendedBook = async (rec: Partial<Book>) => {
-    if (!ensureAuthenticated()) return;
-    const newBook: Book = {
-      id: `rec_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
-      userId: currentUser?.uid,
-      title: rec.title || 'Новая книга',
-      authors: rec.authors && rec.authors.length > 0 ? rec.authors : ['Неизвестный автор'],
-      status: rec.status || 'planned',
-      genres: rec.genres && rec.genres.length > 0 ? rec.genres : ['Художественная литература'],
-      pages: rec.pages || 350,
-      coverColor: rec.coverColor,
-      notes: rec.notes || '',
-      startDate: rec.status === 'reading' ? new Date().toISOString().split('T')[0] : undefined,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    await handleSaveBook(newBook);
   };
 
   // Save book (create or edit) -> writes to local storage AND to Firestore in real time
@@ -306,9 +371,16 @@ export default function App() {
       // 2. Propagate to Cloud -> updates all other connected devices (Phone/PC)
       if (currentUser) {
         setIsSyncing(true);
-        await saveBookToCloud(currentUser.uid, book);
-        setIsSyncing(false);
-        setLastSyncedAt(new Date());
+        try {
+          await saveBookToCloud(currentUser.uid, book);
+          setLastSyncedAt(new Date());
+        } catch (cloudErr: any) {
+          console.warn('Cloud save notification:', cloudErr);
+          setSyncToastMessage('Книга сохранена на этом устройстве. Проверьте подключение к Google для облачной синхронизации.');
+          setTimeout(() => setSyncToastMessage(null), 5000);
+        } finally {
+          setIsSyncing(false);
+        }
       }
 
       // 3. Register any new genres discovered
@@ -639,6 +711,7 @@ export default function App() {
         onOpenWindowsModal={() => setIsWindowsModalOpen(true)}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
+        onTriggerSync={handleTriggerSync}
         isSyncing={isSyncing}
         lastSyncedAt={lastSyncedAt}
         hasConnectedSheets={Boolean(sheetsConfig?.spreadsheetId)}
@@ -668,17 +741,6 @@ export default function App() {
             genresList={genres}
             currentUser={currentUser}
             onOpenAuthModal={() => setIsAuthModalOpen(true)}
-          />
-        )}
-
-        {currentTab === 'recommendations' && (
-          <RecommendationsView
-            books={visibleBooks}
-            currentUser={currentUser}
-            onOpenAuthModal={() => setIsAuthModalOpen(true)}
-            onAddBookToLibrary={handleAddRecommendedBook}
-            onSelectBook={(book) => setSelectedBook(book)}
-            genresList={genres}
           />
         )}
 
@@ -783,7 +845,6 @@ export default function App() {
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         books={visibleBooks}
-        onAddBookToLibrary={handleAddRecommendedBook}
         onSelectBook={(b) => setSelectedBook(b)}
       />
 
@@ -833,7 +894,16 @@ export default function App() {
         currentUser={currentUser}
         books={visibleBooks}
         onSignOut={handleExplicitSignOut}
+        onSyncComplete={handleSyncComplete}
       />
+
+      {/* Real-time Sync Toast Notification */}
+      {syncToastMessage && (
+        <div className="fixed bottom-16 md:bottom-6 right-4 sm:right-6 z-50 max-w-md bg-[#24211D] text-white px-4 py-3 rounded-lg shadow-xl border border-[#3B342C] flex items-center gap-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+          <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+          <p className="text-xs font-medium leading-relaxed">{syncToastMessage}</p>
+        </div>
+      )}
     </div>
   );
 }
