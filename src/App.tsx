@@ -5,7 +5,10 @@ import {
   getAccessToken, 
   getSavedUserSession, 
   saveUserSession, 
-  SavedUserSession 
+  SavedUserSession,
+  isExplicitlySignedOut,
+  setExplicitlySignedOut,
+  ensureAuthReady
 } from './services/firebase';
 import { 
   subscribeToCloudBooks, 
@@ -52,11 +55,13 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   
   // Initialize with cached user session immediately to prevent auth dropping on page reload / mobile sleep
-  const cachedSessionRef = useRef<SavedUserSession | null>(getSavedUserSession());
+  const cachedSessionRef = useRef<SavedUserSession | null>(
+    isExplicitlySignedOut() ? null : getSavedUserSession()
+  );
   const [currentUser, setCurrentUser] = useState<User | null>(
     () => auth.currentUser || (cachedSessionRef.current as unknown as User) || null
   );
-  const explicitlySignedOutRef = useRef<boolean>(false);
+  const explicitlySignedOutRef = useRef<boolean>(isExplicitlySignedOut());
 
   const [isAuthReady, setIsAuthReady] = useState(() => Boolean(auth.currentUser || cachedSessionRef.current));
   const [isSyncing, setIsSyncing] = useState(false);
@@ -157,8 +162,9 @@ export default function App() {
             setLastSyncedAt(new Date());
 
             if (cloudBooks && cloudBooks.length > 0) {
-              // 1. Reconcile with local books to protect any newer local edits (e.g. made on mobile before reconnect)
+              // 1. Reconcile with local books
               const localBooks = await storageService.getBooks();
+              const deletedIds = storageService.getDeletedBookIds();
               const cloudMap = new Map<string, Book>();
               for (const cb of cloudBooks) {
                 cloudMap.set(cb.id, cb);
@@ -168,6 +174,8 @@ export default function App() {
               const finalMerged: Book[] = [];
 
               for (const lb of localBooks) {
+                if (deletedIds.has(lb.id)) continue;
+
                 const cb = cloudMap.get(lb.id);
                 if (cb) {
                   const localTime = new Date(lb.updatedAt || lb.createdAt || 0).getTime();
@@ -180,15 +188,17 @@ export default function App() {
                   }
                   cloudMap.delete(lb.id);
                 } else if (!isStockDemoBooks(localBooks)) {
-                  // Book created locally on this device: keep it and schedule upload
+                  // Book created locally on this device offline: keep it and schedule upload
                   newerLocalsToUpload.push(lb);
                   finalMerged.push(lb);
                 }
               }
 
-              // Add remaining cloud books (e.g. added from mobile)
+              // Add remaining cloud books (e.g. edits/adds from mobile)
               for (const cb of cloudMap.values()) {
-                finalMerged.push(cb);
+                if (!deletedIds.has(cb.id)) {
+                  finalMerged.push(cb);
+                }
               }
 
               finalMerged.sort((a, b) => {
@@ -255,7 +265,7 @@ export default function App() {
           unsubGenres = null;
         }
 
-        if (explicitlySignedOutRef.current || !getSavedUserSession()) {
+        if (explicitlySignedOutRef.current || isExplicitlySignedOut() || !getSavedUserSession()) {
           saveUserSession(null);
           cachedSessionRef.current = null;
           storageService.setUserId(null);
@@ -265,10 +275,19 @@ export default function App() {
           setIsSyncing(false);
           setLastSyncedAt(null);
         } else {
-          // Firebase session might have refreshed or needs reconnection
-          // Keep local books displayed, but clear currentUser so user can 1-click re-authenticate cleanly
-          setCurrentUser(null);
-          setIsSyncing(false);
+          // Returning user: NEVER kick out! Restore from persistent session
+          const saved = getSavedUserSession();
+          if (saved) {
+            setCurrentUser(saved as unknown as User);
+            storageService.setUserId(saved.uid);
+            // Attempt background token refresh
+            ensureAuthReady().then((restored) => {
+              if (restored) {
+                setCurrentUser(restored);
+                saveUserSession(restored);
+              }
+            });
+          }
         }
       }
     });
@@ -674,6 +693,7 @@ export default function App() {
 
   const handleExplicitSignOut = () => {
     explicitlySignedOutRef.current = true;
+    setExplicitlySignedOut(true);
     saveUserSession(null);
     cachedSessionRef.current = null;
     storageService.setUserId(null);
@@ -701,7 +721,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#24211D] flex flex-col pb-16 md:pb-0">
+    <div className="min-h-screen bg-[#FAF8F5] text-[#24211D] flex flex-col pb-20 md:pb-0 w-full max-w-full overflow-x-hidden">
       {/* Top 3-Zone Header with live sync indicator */}
       <Header
         currentTab={currentTab}

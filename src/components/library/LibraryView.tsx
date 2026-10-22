@@ -325,13 +325,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
       {/* Primary Tabs & Search Bar */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Status Tabs (All, Reading, Completed) */}
-        <div className="flex items-center gap-1 p-1 bg-[#EFE9DF] rounded-md self-start">
+        {/* Status Tabs (All, Reading, Planned, Completed) */}
+        <div className="flex items-center gap-1 p-1 bg-[#EFE9DF] rounded-md self-start overflow-x-auto max-w-full">
           <button
             onClick={() => setActiveTab('all')}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'all'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >
@@ -339,9 +339,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('reading')}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'reading'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >
@@ -349,19 +349,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('planned')}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'planned'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
+            title="В планах / Виш-лист"
           >
-            В планах / Виш-лист ({books.filter((b) => b.status === 'planned').length})
+            В планах<span className="hidden sm:inline"> / Виш-лист</span> ({books.filter((b) => b.status === 'planned').length})
           </button>
           <button
             onClick={() => setActiveTab('completed')}
-            className={`px-3 py-1.5 text-xs font-medium rounded transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               activeTab === 'completed'
-                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm'
+                ? 'bg-[#FAF8F5] text-[#24211D] shadow-sm font-semibold'
                 : 'text-[#7A7265] hover:text-[#24211D]'
             }`}
           >

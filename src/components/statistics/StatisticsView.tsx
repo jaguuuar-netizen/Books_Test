@@ -498,8 +498,8 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
           </div>
 
           {/* Table / Genre List with avg rating & hours (7 cols) */}
-          <div className="lg:col-span-7 bg-[#FAF8F5] border border-[#E8E2D8] rounded-md overflow-hidden">
-            <table className="w-full text-left border-collapse text-xs">
+          <div className="lg:col-span-7 bg-[#FAF8F5] border border-[#E8E2D8] rounded-md overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs min-w-[340px]">
               <thead>
                 <tr className="bg-[#F7F4EF] border-b border-[#E8E2D8] text-[#7A7265] uppercase text-[10px] tracking-wider">
                   <th className="py-2.5 px-4 font-semibold">Жанр</th>
@@ -626,8 +626,8 @@ export const StatisticsView: React.FC<StatisticsViewProps> = ({
         </div>
 
         {/* Author Table */}
-        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md overflow-hidden">
-          <table className="w-full text-left border-collapse text-xs">
+        <div className="bg-[#FAF8F5] border border-[#E8E2D8] rounded-md overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs min-w-[340px]">
             <thead>
               <tr className="bg-[#F7F4EF] border-b border-[#E8E2D8] text-[#7A7265] uppercase text-[10px] tracking-wider">
                 <th className="py-2.5 px-4 font-semibold">Автор</th>

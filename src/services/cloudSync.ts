@@ -177,13 +177,12 @@ export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
   }
 }
 
-/**
- * Save single book to cloud in real time.
- */
 export async function saveBookToCloud(userId: string, book: Book): Promise<string> {
-  await ensureAuthReady();
-  if (!auth.currentUser) {
-    throw new Error('Для сохранения книги в облаке требуется подтвердить вход в Google.');
+  const user = await ensureAuthReady();
+  const activeUid = user?.uid || auth.currentUser?.uid;
+  if (!activeUid) {
+    console.warn('saveBookToCloud: auth.currentUser is not yet ready, queued for next sync');
+    throw new Error('Облачная сессия восстанавливается. Изменения сохранены локально.');
   }
 
   const safeId = toSafeBookId(book.id);
@@ -384,7 +383,8 @@ export async function twoWaySyncBooks(
   localBooks: Book[]
 ): Promise<TwoWaySyncResult> {
   const user = await ensureAuthReady();
-  if (!user || user.uid !== userId) {
+  const activeUid = user?.uid || auth.currentUser?.uid;
+  if (!activeUid || activeUid !== userId) {
     throw new Error('Для синхронизации требуется авторизованный аккаунт Google.');
   }
 
@@ -487,7 +487,8 @@ export async function twoWaySyncBooks(
  */
 export async function pullAllBooksFromCloud(userId: string): Promise<Book[]> {
   const user = await ensureAuthReady();
-  if (!user || user.uid !== userId) {
+  const activeUid = user?.uid || auth.currentUser?.uid;
+  if (!activeUid || activeUid !== userId) {
     throw new Error('Для загрузки из облака требуется авторизованный аккаунт Google.');
   }
   const cloudBooks = await fetchCloudBooksOnce(userId);

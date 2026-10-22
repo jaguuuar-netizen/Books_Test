@@ -1,14 +1,15 @@
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth,
+  initializeAuth,
   GoogleAuthProvider, 
   signInWithPopup, 
   signOut, 
   User, 
   browserPopupRedirectResolver,
-  setPersistence,
   indexedDBLocalPersistence,
-  browserLocalPersistence
+  browserLocalPersistence,
+  inMemoryPersistence
 } from 'firebase/auth';
 import { initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
@@ -21,16 +22,19 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Firebase Auth with reliable persistence for mobile and desktop browsers
-export const auth = getAuth(app);
-
-if (typeof window !== 'undefined') {
-  setPersistence(auth, indexedDBLocalPersistence).catch(() => {
-    setPersistence(auth, browserLocalPersistence).catch((err) => {
-      console.warn('Firebase auth setPersistence notice:', err);
-    });
+// Initialize Firebase Auth with multi-tier persistence (localStorage first, then IndexedDB and memory fallback)
+// Putting browserLocalPersistence (localStorage) FIRST guarantees that login credentials survive
+// page reloads, mobile tab sleeps/backgrounding, PWA, and browser restarts without IndexedDB locking issues.
+let authInstance: ReturnType<typeof getAuth>;
+try {
+  authInstance = initializeAuth(app, {
+    persistence: [browserLocalPersistence, indexedDBLocalPersistence, inMemoryPersistence]
   });
+} catch (e) {
+  authInstance = getAuth(app);
 }
+
+export const auth = authInstance;
 
 export { browserPopupRedirectResolver };
 
@@ -44,6 +48,10 @@ export const ensureAuthReady = async (): Promise<User | null> => {
     }
   } catch (e) {
     console.warn('ensureAuthReady notice:', e);
+  }
+  // Brief grace period for token restoration if in progress
+  if (!auth.currentUser) {
+    await new Promise((r) => setTimeout(r, 120));
   }
   return auth.currentUser;
 };
@@ -65,6 +73,29 @@ export const getSavedUserSession = (): SavedUserSession | null => {
   }
 };
 
+export const isExplicitlySignedOut = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  try {
+    return localStorage.getItem('my_book_shelf_explicitly_signed_out') === 'true';
+  } catch {
+    return false;
+  }
+};
+
+export const setExplicitlySignedOut = (value: boolean) => {
+  if (typeof window === 'undefined') return;
+  try {
+    if (value) {
+      localStorage.setItem('my_book_shelf_explicitly_signed_out', 'true');
+      localStorage.removeItem('my_book_shelf_saved_user');
+      localStorage.removeItem('my_book_shelf_has_authenticated');
+    } else {
+      localStorage.removeItem('my_book_shelf_explicitly_signed_out');
+      localStorage.setItem('my_book_shelf_has_authenticated', 'true');
+    }
+  } catch {}
+};
+
 export const saveUserSession = (user: User | SavedUserSession | null) => {
   if (typeof window === 'undefined') return;
   try {
@@ -77,6 +108,7 @@ export const saveUserSession = (user: User | SavedUserSession | null) => {
       };
       localStorage.setItem('my_book_shelf_saved_user', JSON.stringify(session));
       localStorage.setItem('my_book_shelf_has_authenticated', 'true');
+      localStorage.removeItem('my_book_shelf_explicitly_signed_out');
     } else {
       localStorage.removeItem('my_book_shelf_saved_user');
       localStorage.removeItem('my_book_shelf_has_authenticated');
@@ -84,13 +116,9 @@ export const saveUserSession = (user: User | SavedUserSession | null) => {
   } catch {}
 };
 
-// Clean standard Google provider: requests standard profile/email identity only.
-// NEVER attach unverified Workspace scopes here, because Google revokes unverified scopes
-// and prematurely drops the user's refresh token.
+// Standard Google provider: requests standard profile/email identity only.
+// Do NOT force prompt 'select_account' so the user is not pestered to choose account every time.
 export const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({
-  prompt: 'select_account',
-});
 
 // Dedicated Google Sheets provider for optional Google Sheets export in settings
 export const SPREADSHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';

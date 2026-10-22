@@ -31,12 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   hasConnectedSheets = false,
 }) => {
   return (
-    <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#E8E2D8]">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-8 px-4 sm:px-6 lg:px-8 h-16">
+    <header className="sticky top-0 z-30 bg-[#FAF8F5]/95 backdrop-blur-md border-b border-[#E8E2D8] w-full max-w-full overflow-x-hidden">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-6 lg:gap-8 px-3 sm:px-6 lg:px-8 h-14 sm:h-16">
         {/* Zone 1: Brand Wordmark in display face */}
         <button
           onClick={() => onSelectTab('dashboard')}
-          className="text-xl font-display font-semibold tracking-tight text-[#24211D] hover:text-[#5E3023] transition-colors whitespace-nowrap shrink-0 text-left cursor-pointer"
+          className="text-base sm:text-xl font-display font-semibold tracking-tight text-[#24211D] hover:text-[#5E3023] transition-colors whitespace-nowrap shrink-0 text-left cursor-pointer"
         >
           My Book Shelf
         </button>
@@ -118,22 +118,22 @@ export const Header: React.FC<HeaderProps> = ({
         </nav>
 
         {/* Zone 3: Cloud Sync status + Primary Action */}
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
           {currentUser && onTriggerSync && (
             <button
               onClick={onTriggerSync}
               disabled={isSyncing}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded transition-colors bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] cursor-pointer active:scale-95 disabled:opacity-50"
+              className="inline-flex items-center justify-center p-1.5 sm:px-2.5 sm:py-1.5 text-xs font-medium rounded transition-colors bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] cursor-pointer active:scale-95 disabled:opacity-50"
               title="Нажмите для мгновенной двухсторонней синхронизации ПК и телефона"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-emerald-600' : 'text-[#8A5A36]'}`} />
-              <span className="hidden sm:inline">{isSyncing ? 'Синхронизация...' : 'Синхронизировать'}</span>
+              <span className="hidden lg:inline ml-1.5">{isSyncing ? 'Синхронизация...' : 'Синхронизировать'}</span>
             </button>
           )}
 
           <button
             onClick={onOpenAuthModal}
-            className={`inline-flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
+            className={`inline-flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 text-xs font-medium rounded transition-colors whitespace-nowrap cursor-pointer ${
               currentUser
                 ? 'bg-[#EBF3EC] text-[#204028] hover:bg-[#DEEADB] border border-[#CDE1CD]'
                 : 'bg-[#F1ECE4] text-[#6B6357] hover:text-[#24211D] hover:bg-[#EAE4DC]'
@@ -154,7 +154,7 @@ export const Header: React.FC<HeaderProps> = ({
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-600"></span>
                   </span>
                 )}
-                <span className="truncate max-w-[90px] sm:max-w-[120px]">
+                <span className="truncate max-w-[70px] sm:max-w-[120px]">
                   {currentUser.displayName || currentUser.email?.split('@')[0]}
                 </span>
                 <span className="hidden xl:inline text-[10px] text-emerald-700/80 font-mono">
@@ -165,14 +165,14 @@ export const Header: React.FC<HeaderProps> = ({
               <>
                 <Cloud className="w-3.5 h-3.5 text-[#8A8172]" />
                 <span className="hidden sm:inline">Синхронизация</span>
-                <span className="sm:hidden">Облако</span>
+                <span className="sm:hidden">Вход</span>
               </>
             )}
           </button>
 
           <button
             onClick={onOpenAddModal}
-            className={`inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-md transition-colors shadow-sm whitespace-nowrap shrink-0 ${
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 sm:px-4 sm:py-2 text-xs font-semibold rounded-md transition-colors shadow-sm whitespace-nowrap shrink-0 ${
               currentUser
                 ? 'text-[#FAF8F5] bg-[#24211D] hover:bg-[#3B342C]'
                 : 'text-[#4A3B2C] bg-[#EFE8DD] hover:bg-[#E4DCCE] border border-[#D8CEBC]'
@@ -180,11 +180,11 @@ export const Header: React.FC<HeaderProps> = ({
             title={currentUser ? 'Добавить книгу' : 'Войдите через Google для добавления книг'}
           >
             {currentUser ? (
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-3.5 h-3.5 shrink-0" />
             ) : (
-              <Lock className="w-3.5 h-3.5 text-[#8A5A36]" />
+              <Lock className="w-3.5 h-3.5 text-[#8A5A36] shrink-0" />
             )}
-            <span>Добавить</span>
+            <span className="hidden sm:inline">Добавить</span>
           </button>
         </div>
       </div>

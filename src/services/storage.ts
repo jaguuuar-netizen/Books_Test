@@ -106,6 +106,44 @@ class StorageService {
     } catch {}
   }
 
+  recordDeletedBookId(id: string): void {
+    if (!this.currentUserId) return;
+    try {
+      const key = `my_book_shelf_deleted_${this.currentUserId}`;
+      const raw = localStorage.getItem(key);
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      if (!list.includes(id)) {
+        list.push(id);
+        if (list.length > 500) list.shift();
+        localStorage.setItem(key, JSON.stringify(list));
+      }
+    } catch {}
+  }
+
+  isBookDeleted(id: string): boolean {
+    if (!this.currentUserId) return false;
+    try {
+      const key = `my_book_shelf_deleted_${this.currentUserId}`;
+      const raw = localStorage.getItem(key);
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      return list.includes(id);
+    } catch {
+      return false;
+    }
+  }
+
+  getDeletedBookIds(): Set<string> {
+    if (!this.currentUserId) return new Set();
+    try {
+      const key = `my_book_shelf_deleted_${this.currentUserId}`;
+      const raw = localStorage.getItem(key);
+      const list: string[] = raw ? JSON.parse(raw) : [];
+      return new Set(list);
+    } catch {
+      return new Set();
+    }
+  }
+
   private getStorageKey(): string | null {
     if (!this.currentUserId) return null;
     return `my_book_shelf_books_${this.currentUserId}`;
@@ -216,6 +254,7 @@ class StorageService {
   }
 
   async deleteBook(id: string): Promise<void> {
+    this.recordDeletedBookId(id);
     const all = this.getBooksFallback().filter((b) => b.id !== id);
     this.saveBooksToLocalStorage(all);
 
