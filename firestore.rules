@@ -7,7 +7,10 @@ service cloud.firestore {
     }
 
     function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+      return isSignedIn() && (
+        request.auth.uid == userId ||
+        (request.auth.token.email != null && request.auth.token.email.lower() == userId.lower())
+      );
     }
 
     // Default deny all unknown collections

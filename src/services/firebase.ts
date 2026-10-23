@@ -4,6 +4,9 @@ import {
   initializeAuth,
   GoogleAuthProvider, 
   signInWithPopup, 
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCredential,
   signOut, 
   User, 
   browserPopupRedirectResolver,
@@ -22,13 +25,12 @@ export const db = initializeFirestore(app, {
   ignoreUndefinedProperties: true,
 }, (firebaseConfig as any).firestoreDatabaseId);
 
-// Initialize Firebase Auth with multi-tier persistence (localStorage first, then IndexedDB and memory fallback)
-// Putting browserLocalPersistence (localStorage) FIRST guarantees that login credentials survive
-// page reloads, mobile tab sleeps/backgrounding, PWA, and browser restarts without IndexedDB locking issues.
+// Initialize Firebase Auth with multi-tier persistence and browser popup/redirect resolver
 let authInstance: ReturnType<typeof getAuth>;
 try {
   authInstance = initializeAuth(app, {
-    persistence: [browserLocalPersistence, indexedDBLocalPersistence, inMemoryPersistence]
+    persistence: [indexedDBLocalPersistence, browserLocalPersistence, inMemoryPersistence],
+    popupRedirectResolver: browserPopupRedirectResolver
   });
 } catch (e) {
   authInstance = getAuth(app);
@@ -36,7 +38,13 @@ try {
 
 export const auth = authInstance;
 
-export { browserPopupRedirectResolver };
+export { 
+  browserPopupRedirectResolver,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signInWithCredential
+};
 
 /**
  * Ensures Firebase Auth has finished restoring session from storage before executing cloud operations
@@ -72,20 +80,14 @@ export const getSavedUserSession = (): SavedUserSession | null => {
     const raw = localStorage.getItem('my_book_shelf_saved_user');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && (parsed.uid || parsed.email)) {
+      if (parsed && parsed.uid && parsed.email) {
         return parsed;
       }
     }
   } catch {
     // Ignore storage parse error
   }
-  // Seamless cross-device default account: connects phone and PC to the same library without friction
-  return {
-    uid: DEFAULT_USER_EMAIL,
-    displayName: 'jaguuuar',
-    email: DEFAULT_USER_EMAIL,
-    photoURL: null,
-  };
+  return null;
 };
 
 export const isExplicitlySignedOut = (): boolean => {

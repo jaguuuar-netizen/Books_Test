@@ -8,7 +8,8 @@ import {
   SavedUserSession,
   isExplicitlySignedOut,
   setExplicitlySignedOut,
-  ensureAuthReady
+  ensureAuthReady,
+  getRedirectResult
 } from './services/firebase';
 import { 
   subscribeToCloudBooks, 
@@ -109,6 +110,20 @@ export default function App() {
       }
     }
     loadData();
+  }, []);
+
+  // Check for Google redirect sign-in result (mobile browser compatibility)
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          setCurrentUser(result.user);
+          saveUserSession(result.user);
+        }
+      })
+      .catch((err) => {
+        console.warn('Google redirect result notice:', err);
+      });
   }, []);
 
   // Safety timeout: ensure auth check never hangs indefinitely on offline/slow mobile networks
@@ -275,7 +290,10 @@ export default function App() {
           saveUserSession(null);
           cachedSessionRef.current = null;
           storageService.setUserId(null);
-          setBooks([]);
+          const local = await storageService.getBooks();
+          if (local && local.length > 0) {
+            setBooks(local);
+          }
           setSelectedBook(null);
           setCurrentUser(null);
           setIsSyncing(false);

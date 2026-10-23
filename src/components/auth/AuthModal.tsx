@@ -234,26 +234,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           {isUnauthorizedDomain && (
-            <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-lg text-[#3B342C] space-y-3">
+            <div className="p-4 bg-amber-50/95 border border-amber-300 rounded-lg text-[#3B342C] space-y-3">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
+                <div className="space-y-1">
                   <h5 className="font-semibold text-xs text-[#24211D]">
-                    Вход через Google заблокирован политикой доменов Google
+                    Требуется разрешить домен в Firebase Console
                   </h5>
-                  <p className="text-[11px] text-[#6B6357] mt-0.5">
-                    В облачной среде превью этот домен не зарегистрирован в Google. Но вы можете мгновенно подключить синхронизацию по Email — без настройки консоли!
+                  <p className="text-[11px] text-[#6B6357] leading-relaxed">
+                    Политика безопасности Google требует добавить этот домен в список <strong>Authorized Domains</strong> вашего проекта Firebase (<strong>thematic-cathode-98f9p</strong>). Это занимает 30 секунд:
                   </p>
                 </div>
               </div>
 
+              <div className="bg-white border border-amber-200 rounded p-2.5 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-[11px] text-[#24211D] truncate select-all">
+                    {currentDomain}
+                  </span>
+                  <button
+                    onClick={handleCopyDomain}
+                    className="shrink-0 px-2.5 py-1 text-[11px] font-medium bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] rounded transition-colors cursor-pointer"
+                  >
+                    {copiedDomain ? 'Скопировано ✓' : 'Скопировать'}
+                  </button>
+                </div>
+              </div>
+
               <div className="pt-1 flex flex-col sm:flex-row gap-2">
-                <button
-                  onClick={() => handleEmailSignIn('jaguuuar@gmail.com')}
-                  disabled={isLoading}
-                  className="flex-1 py-2 px-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm text-center cursor-pointer"
+                <a
+                  href={firebaseSettingsUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2 px-3 bg-[#FAF8F5] border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] rounded font-medium text-xs text-center transition-colors shadow-xs"
                 >
-                  {isLoading ? 'Подключение...' : 'Войти как jaguuuar@gmail.com (1 клик)'}
+                  1. Открыть Authorized domains в Firebase →
+                </a>
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={isLoading}
+                  className="flex-1 py-2 px-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-xs text-center cursor-pointer disabled:opacity-50"
+                >
+                  2. {isLoading ? 'Подключение...' : 'Повторить вход через Google'}
                 </button>
               </div>
             </div>
@@ -378,46 +400,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <div className="space-y-3 pt-1">
-                {/* 1-Click Fast Pairing Card */}
-                <div className="p-3.5 bg-[#FAF8F5] border border-[#D1C7B7] rounded-md space-y-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-xs text-[#24211D]">Быстрая синхронизация по Email:</span>
-                    <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-medium border border-emerald-200">Без блокировок</span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-stretch gap-2">
-                    <input
-                      type="email"
-                      value={emailInput}
-                      onChange={(e) => setEmailInput(e.target.value)}
-                      placeholder="jaguuuar@gmail.com"
-                      className="flex-1 px-3 py-2 text-xs bg-white border border-[#D1C7B7] rounded focus:outline-none focus:border-[#24211D] text-[#24211D]"
-                    />
-                    <button
-                      onClick={() => handleEmailSignIn(emailInput)}
-                      disabled={isLoading}
-                      className="px-4 py-2 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 text-center shadow-xs"
-                    >
-                      {isLoading ? 'Подключение...' : 'Подключить (1 клик)'}
-                    </button>
-                  </div>
-                  <p className="text-[10px] text-[#7A7265]">
-                    Используйте одинаковый email на телефоне и компьютере — книги обновляются мгновенно без блокировок браузера и окон авторизации.
-                  </p>
-                </div>
-
-                <div className="relative flex py-1 items-center">
-                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
-                  <span className="flex-shrink mx-2 text-[10px] uppercase tracking-wider text-[#8A8172]">или через Google</span>
-                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
-                </div>
-
+              <div className="space-y-4 pt-1">
+                {/* Primary: Google Sign In */}
                 <button
                   onClick={handleGoogleSignIn}
                   disabled={isLoading}
-                  className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-2.5 bg-[#FAF8F5] hover:bg-[#F1EAE0] border border-[#D1C7B7] text-[#24211D] rounded font-medium text-xs transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+                  className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm disabled:opacity-50 cursor-pointer"
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                     <path
                       fill="#4285F4"
                       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -435,8 +425,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                     />
                   </svg>
-                  <span>{isLoading ? 'Подключение к Google...' : 'Войти через Google для синхронизации'}</span>
+                  <span className="font-semibold">{isLoading ? 'Подключение к Google...' : 'Войти через Google для синхронизации'}</span>
                 </button>
+
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
+                  <span className="flex-shrink mx-2 text-[10px] uppercase tracking-wider text-[#8A8172]">или резервная синхронизация</span>
+                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
+                </div>
+
+                {/* Secondary Pairing Card */}
+                <div className="p-3 bg-[#FAF8F5] border border-[#D1C7B7] rounded-md space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-[11px] text-[#24211D]">Синхронизация по Email:</span>
+                    <span className="text-[10px] text-[#7A7265]">Без всплывающих окон</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch gap-2">
+                    <input
+                      type="email"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="jaguuuar@gmail.com"
+                      className="flex-1 px-3 py-1.5 text-xs bg-white border border-[#D1C7B7] rounded focus:outline-none focus:border-[#24211D] text-[#24211D]"
+                    />
+                    <button
+                      onClick={() => handleEmailSignIn(emailInput)}
+                      disabled={isLoading}
+                      className="px-3 py-1.5 bg-[#FAF8F5] hover:bg-[#F1EAE0] border border-[#D1C7B7] text-[#24211D] rounded font-medium text-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 text-center shadow-xs"
+                    >
+                      Подключить по Email
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
