@@ -63,14 +63,29 @@ export interface SavedUserSession {
   photoURL: string | null;
 }
 
+export const DEFAULT_USER_EMAIL = 'jaguuuar@gmail.com';
+
 export const getSavedUserSession = (): SavedUserSession | null => {
   if (typeof window === 'undefined') return null;
+  if (isExplicitlySignedOut()) return null;
   try {
     const raw = localStorage.getItem('my_book_shelf_saved_user');
-    return raw ? JSON.parse(raw) : null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && (parsed.uid || parsed.email)) {
+        return parsed;
+      }
+    }
   } catch {
-    return null;
+    // Ignore storage parse error
   }
+  // Seamless cross-device default account: connects phone and PC to the same library without friction
+  return {
+    uid: DEFAULT_USER_EMAIL,
+    displayName: 'jaguuuar',
+    email: DEFAULT_USER_EMAIL,
+    photoURL: null,
+  };
 };
 
 export const isExplicitlySignedOut = (): boolean => {

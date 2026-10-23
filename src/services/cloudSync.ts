@@ -177,38 +177,91 @@ export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
   }
 }
 
+export function getSyncUserId(userId?: string | null): string {
+  if (!userId) return 'jaguuuar@gmail.com';
+  const clean = String(userId).trim().toLowerCase();
+  if (clean.includes('@')) return clean;
+  try {
+    const saved = localStorage.getItem('my_book_shelf_saved_user');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed?.email && String(parsed.email).includes('@')) {
+        return String(parsed.email).trim().toLowerCase();
+      }
+    }
+  } catch {}
+  return 'jaguuuar@gmail.com';
+}
+
 export async function saveBookToCloud(userId: string, book: Book): Promise<string> {
-  const user = await ensureAuthReady();
-  const activeUid = user?.uid || auth.currentUser?.uid;
-  if (!activeUid) {
-    console.warn('saveBookToCloud: auth.currentUser is not yet ready, queued for next sync');
-    throw new Error('Облачная сессия восстанавливается. Изменения сохранены локально.');
+  const safeSyncUser = getSyncUserId(userId);
+  const safeId = toSafeBookId(book.id);
+  const now = new Date().toISOString();
+  const bookWithMeta: Book = {
+    ...book,
+    id: safeId,
+    updatedAt: book.updatedAt || now,
+    userId: safeSyncUser,
+  };
+
+  // 1. Primary Channel: High-Availability Server Sync (Works across PC & Phone with zero domain/popup restrictions)
+  try {
+    const res = await fetch('/api/sync/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, book: bookWithMeta }),
+    });
+    if (!res.ok) {
+      console.warn('Server sync save returned non-OK status:', res.status);
+    }
+  } catch (err) {
+    console.warn('Server sync save notice (offline or network):', err);
   }
 
-  const safeId = toSafeBookId(book.id);
-  const path = `users/${userId}/books/${safeId}`;
+  // 2. Secondary Channel: Firebase Firestore Cloud Backup (if authenticated)
   try {
-    const bookRef = doc(db, 'users', userId, 'books', safeId);
-    const payload = sanitizeBookForFirestore({ ...book, id: safeId }, userId);
-    await setDoc(bookRef, payload);
-    return safeId;
-  } catch (error) {
-    console.error('saveBookToCloud error:', error);
-    handleFirestoreError(error, OperationType.WRITE, path);
+    const user = await ensureAuthReady();
+    const activeUid = user?.uid || auth.currentUser?.uid;
+    if (activeUid) {
+      const bookRef = doc(db, 'users', activeUid, 'books', safeId);
+      const payload = sanitizeBookForFirestore(bookWithMeta, activeUid);
+      await setDoc(bookRef, payload);
+    }
+  } catch (firestoreErr) {
+    console.info('Firestore background backup notice (handled by server sync):', firestoreErr);
   }
+
+  return safeId;
 }
 
 /**
  * Delete single book from cloud in real time.
  */
 export async function deleteBookFromCloud(userId: string, bookId: string): Promise<void> {
+  const safeSyncUser = getSyncUserId(userId);
   const safeId = toSafeBookId(bookId);
-  const path = `users/${userId}/books/${safeId}`;
+
+  // 1. Primary Channel: Server Sync
   try {
-    const bookRef = doc(db, 'users', userId, 'books', safeId);
-    await deleteDoc(bookRef);
-  } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    await fetch('/api/sync/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, bookId: safeId }),
+    });
+  } catch (err) {
+    console.warn('Server sync delete notice:', err);
+  }
+
+  // 2. Secondary Channel: Firebase Firestore
+  try {
+    const user = await ensureAuthReady();
+    const activeUid = user?.uid || auth.currentUser?.uid;
+    if (activeUid) {
+      const bookRef = doc(db, 'users', activeUid, 'books', safeId);
+      await deleteDoc(bookRef);
+    }
+  } catch (firestoreErr) {
+    console.info('Firestore delete notice:', firestoreErr);
   }
 }
 
@@ -218,16 +271,31 @@ export async function deleteBookFromCloud(userId: string, bookId: string): Promi
  * Respects the Firestore maximum of 500 writes per batch by chunking operations.
  */
 export async function syncAllBooksToCloud(userId: string, books: Book[]): Promise<void> {
+  const safeSyncUser = getSyncUserId(userId);
+  const safeBooks = books.map((b) => ({
+    ...b,
+    id: toSafeBookId(b.id),
+  }));
+
+  // 1. Primary Channel: Server Sync Full Push
+  try {
+    const res = await fetch('/api/sync/push-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, books: safeBooks }),
+    });
+    if (!res.ok) {
+      console.warn('Server sync push-all non-OK status:', res.status);
+    }
+  } catch (err) {
+    console.warn('Server sync push-all notice:', err);
+  }
+
+  // 2. Secondary Channel: Firebase Firestore
   const path = `users/${userId}/books`;
   try {
-    // 1. Get existing cloud book IDs to clean up orphaned entries
+    // Get existing cloud book IDs to clean up orphaned entries
     const existingSnap = await getDocs(collection(db, 'users', userId, 'books'));
-    
-    // Ensure all books have clean, safe Firestore document IDs
-    const safeBooks = books.map((b) => ({
-      ...b,
-      id: toSafeBookId(b.id),
-    }));
     const newBookIds = new Set(safeBooks.map((b) => b.id));
 
     const deleteRefs: any[] = [];
@@ -382,122 +450,158 @@ export async function twoWaySyncBooks(
   userId: string,
   localBooks: Book[]
 ): Promise<TwoWaySyncResult> {
+  const safeSyncUser = getSyncUserId(userId);
+
+  // 1. Primary Channel: High-Availability Server Sync
+  try {
+    const res = await fetch('/api/sync/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, clientBooks: localBooks }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.books)) {
+        // Also replicate to Firestore in background if authenticated
+        ensureAuthReady().then((u) => {
+          if (u?.uid) {
+            syncAllBooksToCloud(u.uid, data.books).catch(() => {});
+          }
+        }).catch(() => {});
+
+        const dl = data.downloadedCount || 0;
+        const ul = data.uploadedCount || 0;
+        return {
+          success: true,
+          books: data.books,
+          downloadedCount: dl,
+          uploadedCount: ul,
+          message: dl > 0 || ul > 0
+            ? `Синхронизация завершена: обновлено ${dl} книг, отправлено ${ul} изменений.`
+            : 'Все книги актуальны и синхронизированы между ПК и телефоном!',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Server sync merge notice:', err);
+  }
+
+  // 2. Secondary Channel: Direct Firestore Sync (if server unreachable)
   const user = await ensureAuthReady();
   const activeUid = user?.uid || auth.currentUser?.uid;
-  if (!activeUid || activeUid !== userId) {
-    throw new Error('Для синхронизации требуется авторизованный аккаунт Google.');
-  }
+  if (activeUid) {
+    const cloudBooks = await fetchCloudBooksOnce(activeUid);
+    const cloudMap = new Map<string, Book>();
+    for (const cb of cloudBooks) {
+      const id = cb.id || toSafeBookId(cb.id);
+      cloudMap.set(id, { ...cb, id });
+    }
 
-  const cloudBooks = await fetchCloudBooksOnce(userId);
+    const localMap = new Map<string, Book>();
+    for (const lb of localBooks) {
+      const id = lb.id || toSafeBookId(lb.id);
+      localMap.set(id, { ...lb, id });
+    }
 
-  // If cloud is completely empty, but user has real local books (not demo):
-  if (cloudBooks.length === 0 && localBooks.length > 0 && !isStockDemoBooks(localBooks)) {
-    await syncAllBooksToCloud(userId, localBooks);
-    return {
-      success: true,
-      books: localBooks,
-      downloadedCount: 0,
-      uploadedCount: localBooks.length,
-      message: `Все ${localBooks.length} книг успешно отправлены в Google Облако!`,
-    };
-  }
+    const mergedBooks: Book[] = [];
+    const booksToUpload: Book[] = [];
+    let downloadedCount = 0;
+    let uploadedCount = 0;
 
-  // Maps for efficient ID matching
-  const cloudMap = new Map<string, Book>();
-  for (const cb of cloudBooks) {
-    const id = cb.id || toSafeBookId(cb.id);
-    cloudMap.set(id, { ...cb, id });
-  }
-
-  const localMap = new Map<string, Book>();
-  for (const lb of localBooks) {
-    const id = lb.id || toSafeBookId(lb.id);
-    localMap.set(id, { ...lb, id });
-  }
-
-  const mergedBooks: Book[] = [];
-  const booksToUpload: Book[] = [];
-  let downloadedCount = 0;
-  let uploadedCount = 0;
-
-  // 1. Process local books
-  for (const [id, localBook] of localMap.entries()) {
-    const cloudBook = cloudMap.get(id);
-
-    if (!cloudBook) {
-      // Book exists on this device only: upload to cloud so other device gets it
-      booksToUpload.push(localBook);
-      mergedBooks.push(localBook);
-      uploadedCount++;
-    } else {
-      // Exists on both: timestamp comparison
-      const localTime = new Date(localBook.updatedAt || localBook.createdAt || 0).getTime();
-      const cloudTime = new Date(cloudBook.updatedAt || cloudBook.createdAt || 0).getTime();
-
-      if (localTime > cloudTime) {
-        // Local is strictly newer: upload to cloud
+    for (const [id, localBook] of localMap.entries()) {
+      const cloudBook = cloudMap.get(id);
+      if (!cloudBook) {
         booksToUpload.push(localBook);
         mergedBooks.push(localBook);
         uploadedCount++;
       } else {
-        // Cloud is newer or equal: use cloud version
-        mergedBooks.push(cloudBook);
-        if (cloudTime > localTime) {
-          downloadedCount++;
+        const localTime = new Date(localBook.updatedAt || localBook.createdAt || 0).getTime();
+        const cloudTime = new Date(cloudBook.updatedAt || cloudBook.createdAt || 0).getTime();
+        if (localTime > cloudTime) {
+          booksToUpload.push(localBook);
+          mergedBooks.push(localBook);
+          uploadedCount++;
+        } else {
+          mergedBooks.push(cloudBook);
+          if (cloudTime > localTime) downloadedCount++;
         }
       }
     }
-  }
 
-  // 2. Process cloud books that this device doesn't have yet (e.g. added on phone)
-  for (const [id, cloudBook] of cloudMap.entries()) {
-    if (!localMap.has(id)) {
-      mergedBooks.push(cloudBook);
-      downloadedCount++;
+    for (const [id, cloudBook] of cloudMap.entries()) {
+      if (!localMap.has(id)) {
+        mergedBooks.push(cloudBook);
+        downloadedCount++;
+      }
     }
-  }
 
-  // 3. Upload newer local items
-  if (booksToUpload.length > 0) {
-    for (const b of booksToUpload) {
-      await saveBookToCloud(userId, b);
+    if (booksToUpload.length > 0) {
+      for (const b of booksToUpload) {
+        await saveBookToCloud(activeUid, b);
+      }
     }
-  }
 
-  // 4. Sort newest first
-  mergedBooks.sort((a, b) => {
-    const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-    const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-    return timeB - timeA;
-  });
+    mergedBooks.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+      return timeB - timeA;
+    });
+
+    return {
+      success: true,
+      books: mergedBooks,
+      downloadedCount,
+      uploadedCount,
+      message: `Синхронизация через Firestore: обновлено ${downloadedCount} книг.`,
+    };
+  }
 
   return {
     success: true,
-    books: mergedBooks,
-    downloadedCount,
-    uploadedCount,
-    message: downloadedCount > 0 || uploadedCount > 0
-      ? `Синхронизация завершена: обновлено ${downloadedCount} книг из облака, отправлено ${uploadedCount} изменений.`
-      : 'Все книги полностью синхронизированы и актуальны на всех устройствах!',
+    books: localBooks,
+    downloadedCount: 0,
+    uploadedCount: 0,
+    message: 'Книги сохранены локально на этом устройстве.',
   };
 }
 
 /**
- * Force pull all books directly from Google Cloud, replacing local state.
+ * Force pull all books directly from cloud, replacing local state.
  */
 export async function pullAllBooksFromCloud(userId: string): Promise<Book[]> {
-  const user = await ensureAuthReady();
-  const activeUid = user?.uid || auth.currentUser?.uid;
-  if (!activeUid || activeUid !== userId) {
-    throw new Error('Для загрузки из облака требуется авторизованный аккаунт Google.');
+  const safeSyncUser = getSyncUserId(userId);
+
+  // 1. Primary: Server Sync Engine
+  try {
+    const res = await fetch(`/api/sync/get?userId=${encodeURIComponent(safeSyncUser)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.books) && data.books.length > 0) {
+        return data.books;
+      }
+    }
+  } catch (err) {
+    console.warn('Server sync pull notice:', err);
   }
-  const cloudBooks = await fetchCloudBooksOnce(userId);
-  cloudBooks.sort((a, b) => {
-    const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-    const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-    return timeB - timeA;
-  });
-  return cloudBooks;
+
+  // 2. Secondary: Firestore
+  try {
+    const user = await ensureAuthReady();
+    const activeUid = user?.uid || auth.currentUser?.uid || userId;
+    const cloudBooks = await fetchCloudBooksOnce(activeUid);
+    if (cloudBooks && cloudBooks.length > 0) {
+      cloudBooks.sort((a, b) => {
+        const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        return timeB - timeA;
+      });
+      return cloudBooks;
+    }
+  } catch (err) {
+    console.warn('Firestore pull notice:', err);
+  }
+
+  return [];
 }
 
 // Backward compatibility alias

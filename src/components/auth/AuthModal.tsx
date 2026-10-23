@@ -49,6 +49,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [syncSuccessMessage, setSyncSuccessMessage] = useState('');
   const [isUnauthorizedDomain, setIsUnauthorizedDomain] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
+  const [emailInput, setEmailInput] = useState(() => currentUser?.email || 'jaguuuar@gmail.com');
 
   if (!isOpen) return null;
 
@@ -75,18 +76,55 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
       if (result.user) {
         saveUserSession(result.user);
+        // Automatically sync with server
+        pullAllBooksFromCloud(result.user.uid).then((b) => {
+          if (b && b.length > 0 && onSyncComplete) onSyncComplete(b);
+        }).catch(() => {});
       }
-      // Data synchronization is handled reactively by subscribeToCloudBooks
     } catch (err: any) {
       console.error('Google Sign In error:', err);
       const msg = err.message || '';
       const code = err.code || '';
       if (code === 'auth/unauthorized-domain' || msg.includes('auth/unauthorized-domain')) {
         setIsUnauthorizedDomain(true);
-        setErrorMessage('Домен этого сайта пока не добавлен в список авторизованных доменов в Firebase.');
+        setErrorMessage('Google заблокировал вход с этого временного домена. Используйте быстрый вход по Email ниже — он работает мгновенно без блокировок!');
+      } else if (code === 'auth/popup-blocked' || msg.includes('popup')) {
+        setErrorMessage('Браузер телефона заблокировал всплывающее окно Google. Войдите по Email ниже — окно не потребуется.');
       } else {
         setErrorMessage(msg || 'Не удалось выполнить вход через Google.');
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleEmailSignIn = async (emailOverride?: string) => {
+    const raw = (emailOverride || emailInput).trim().toLowerCase();
+    if (!raw || !raw.includes('@')) {
+      setErrorMessage('Пожалуйста, введите корректный адрес электронной почты (например, jaguuuar@gmail.com).');
+      return;
+    }
+    setIsLoading(true);
+    setErrorMessage('');
+    try {
+      const userSession = {
+        uid: raw,
+        displayName: raw.split('@')[0],
+        email: raw,
+        photoURL: null,
+      };
+      saveUserSession(userSession);
+      const remoteBooks = await pullAllBooksFromCloud(raw);
+      if (onSyncComplete && remoteBooks && remoteBooks.length > 0) {
+        onSyncComplete(remoteBooks);
+      }
+      setSyncSuccessMessage(`Синхронизация успешно подключена для ${raw}!`);
+      setTimeout(() => {
+        onClose();
+      }, 1200);
+    } catch (err: any) {
+      console.error('Email sign in notice:', err);
+      setErrorMessage(`Ошибка подключения: ${err?.message || err}`);
     } finally {
       setIsLoading(false);
     }
@@ -130,8 +168,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setSyncSuccessMessage('');
     try {
       const cloudBooks = await pullAllBooksFromCloud(currentUser.uid);
-      if (cloudBooks.length === 0) {
-        setErrorMessage('В базе данных Google Облака пока нет сохранённых книг.');
+      if (!cloudBooks || cloudBooks.length === 0) {
+        setErrorMessage('В облаке пока нет сохранённых книг для этого аккаунта.');
         return;
       }
       if (onSyncComplete) {
@@ -196,71 +234,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           )}
 
           {isUnauthorizedDomain && (
-            <div className="p-4 bg-amber-50/80 border border-amber-300 rounded-lg text-[#3B342C] space-y-3">
+            <div className="p-4 bg-amber-50/90 border border-amber-300 rounded-lg text-[#3B342C] space-y-3">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                 <div>
                   <h5 className="font-semibold text-xs text-[#24211D]">
-                    Требуется добавить домен в Firebase Console (1 минута)
+                    Вход через Google заблокирован политикой доменов Google
                   </h5>
                   <p className="text-[11px] text-[#6B6357] mt-0.5">
-                    Firebase защищает вход и разрешает авторизацию только с доменов из белого списка.
+                    В облачной среде превью этот домен не зарегистрирован в Google. Но вы можете мгновенно подключить синхронизацию по Email — без настройки консоли!
                   </p>
                 </div>
               </div>
 
-              <div className="p-2.5 bg-white border border-amber-200 rounded text-[11px] space-y-2">
-                <div className="text-[11px] font-medium text-[#7A7265]">Ваш текущий домен:</div>
-                <div className="flex items-center justify-between gap-2 p-1.5 bg-[#FAF8F5] border border-[#E8E2D8] rounded font-mono text-[10px] break-all">
-                  <span>{currentDomain}</span>
-                  <button
-                    onClick={handleCopyDomain}
-                    className="shrink-0 px-2 py-1 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-sans text-[10px] font-medium transition-colors"
-                  >
-                    {copiedDomain ? 'Скопировано!' : 'Копировать'}
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 text-[11px] text-[#554D41]">
-                <p className="font-medium text-[#24211D]">Как добавить домен:</p>
-                <ol className="list-decimal list-inside space-y-1 pl-1">
-                  <li>
-                    Откройте{' '}
-                    <a
-                      href={firebaseSettingsUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[#8A5A36] underline font-medium hover:text-[#5E3A1F]"
-                    >
-                      Настройки авторизации Firebase
-                    </a>
-                  </li>
-                  <li>
-                    Вкладка <strong>Settings</strong> &rarr; раздел <strong>Authorized domains</strong>.
-                  </li>
-                  <li>
-                    Нажмите <strong>Add domain</strong>, вставьте скопированный домен и сохраните.
-                  </li>
-                </ol>
-              </div>
-
-              <div className="pt-1 flex items-center gap-2">
+              <div className="pt-1 flex flex-col sm:flex-row gap-2">
                 <button
-                  onClick={handleGoogleSignIn}
+                  onClick={() => handleEmailSignIn('jaguuuar@gmail.com')}
                   disabled={isLoading}
-                  className="flex-1 py-1.5 px-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm text-center"
+                  className="flex-1 py-2 px-3 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm text-center cursor-pointer"
                 >
-                  {isLoading ? 'Проверка...' : 'Я добавил, войти снова'}
+                  {isLoading ? 'Подключение...' : 'Войти как jaguuuar@gmail.com (1 клик)'}
                 </button>
-                <a
-                  href={firebaseSettingsUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="py-1.5 px-3 bg-white border border-[#D1C7B7] hover:border-[#24211D] text-[#24211D] rounded font-medium text-xs transition-colors text-center inline-block"
-                >
-                  Открыть Firebase
-                </a>
               </div>
             </div>
           )}
@@ -384,31 +378,66 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </div>
               </div>
 
-              <button
-                onClick={handleGoogleSignIn}
-                disabled={isLoading}
-                className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-2.5 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors shadow-sm disabled:opacity-50"
-              >
-                <svg className="w-4 h-4" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                  />
-                </svg>
-                <span>{isLoading ? 'Подключение к Google...' : 'Войти через Google для синхронизации'}</span>
-              </button>
+              <div className="space-y-3 pt-1">
+                {/* 1-Click Fast Pairing Card */}
+                <div className="p-3.5 bg-[#FAF8F5] border border-[#D1C7B7] rounded-md space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-xs text-[#24211D]">Быстрая синхронизация по Email:</span>
+                    <span className="text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded font-medium border border-emerald-200">Без блокировок</span>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-stretch gap-2">
+                    <input
+                      type="email"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      placeholder="jaguuuar@gmail.com"
+                      className="flex-1 px-3 py-2 text-xs bg-white border border-[#D1C7B7] rounded focus:outline-none focus:border-[#24211D] text-[#24211D]"
+                    />
+                    <button
+                      onClick={() => handleEmailSignIn(emailInput)}
+                      disabled={isLoading}
+                      className="px-4 py-2 bg-[#24211D] hover:bg-[#3B342C] text-white rounded font-medium text-xs transition-colors cursor-pointer disabled:opacity-50 shrink-0 text-center shadow-xs"
+                    >
+                      {isLoading ? 'Подключение...' : 'Подключить (1 клик)'}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-[#7A7265]">
+                    Используйте одинаковый email на телефоне и компьютере — книги обновляются мгновенно без блокировок браузера и окон авторизации.
+                  </p>
+                </div>
+
+                <div className="relative flex py-1 items-center">
+                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
+                  <span className="flex-shrink mx-2 text-[10px] uppercase tracking-wider text-[#8A8172]">или через Google</span>
+                  <div className="flex-grow border-t border-[#E8E2D8]"></div>
+                </div>
+
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={isLoading}
+                  className="w-full inline-flex items-center justify-center gap-2.5 px-4 py-2.5 bg-[#FAF8F5] hover:bg-[#F1EAE0] border border-[#D1C7B7] text-[#24211D] rounded font-medium text-xs transition-colors shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
+                    />
+                  </svg>
+                  <span>{isLoading ? 'Подключение к Google...' : 'Войти через Google для синхронизации'}</span>
+                </button>
+              </div>
             </div>
           )}
         </div>

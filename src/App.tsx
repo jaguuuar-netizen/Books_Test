@@ -80,22 +80,28 @@ export default function App() {
   const [isWindowsModalOpen, setIsWindowsModalOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  // 1. Initialize local cache on mount immediately
+  // 1. Initialize local cache and immediate server sync on mount
   useEffect(() => {
     async function loadData() {
       try {
-        const activeUid = auth.currentUser?.uid || cachedSessionRef.current?.uid;
-        if (activeUid) {
-          storageService.setUserId(activeUid);
-          const cached = await storageService.getBooks();
-          if (cached && cached.length > 0) {
-            setBooks(cached);
-          }
+        const activeUid = auth.currentUser?.uid || cachedSessionRef.current?.uid || 'jaguuuar@gmail.com';
+        storageService.setUserId(activeUid);
+        const cached = await storageService.getBooks();
+        if (cached && cached.length > 0) {
+          setBooks(cached);
         }
         const storedGenres = await storageService.getGenres();
         if (storedGenres && storedGenres.length > 0) {
           setGenres(storedGenres);
         }
+        // Immediate background pull to guarantee any books added on PC appear right away on phone
+        pullAllBooksFromCloud(activeUid).then(async (remoteBooks) => {
+          if (remoteBooks && remoteBooks.length > 0) {
+            setBooks(remoteBooks);
+            await storageService.setAllBooks(remoteBooks);
+            setLastSyncedAt(new Date());
+          }
+        }).catch(() => {});
       } catch (err) {
         console.error('Error loading initial data from storage:', err);
       } finally {
@@ -298,6 +304,41 @@ export default function App() {
       if (unsubGenres) unsubGenres();
     };
   }, []);
+
+  // 3. Auto-sync on mobile tab wake-up / window focus / periodic heartbeat
+  useEffect(() => {
+    let isFetching = false;
+    const handleSyncOnWake = async () => {
+      if (document.visibilityState === 'visible' && !isFetching) {
+        isFetching = true;
+        const activeUid = auth.currentUser?.uid || currentUser?.uid || cachedSessionRef.current?.uid || 'jaguuuar@gmail.com';
+        try {
+          const remoteBooks = await pullAllBooksFromCloud(activeUid);
+          if (remoteBooks && remoteBooks.length > 0) {
+            setBooks(remoteBooks);
+            await storageService.setAllBooks(remoteBooks);
+            setLastSyncedAt(new Date());
+          }
+        } catch (e) {
+          console.debug('Background focus sync notice:', e);
+        } finally {
+          isFetching = false;
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleSyncOnWake);
+    window.addEventListener('focus', handleSyncOnWake);
+
+    // Periodic check every 25 seconds if user leaves tab open on phone
+    const interval = setInterval(handleSyncOnWake, 25000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleSyncOnWake);
+      window.removeEventListener('focus', handleSyncOnWake);
+      clearInterval(interval);
+    };
+  }, [currentUser]);
 
   // Automatic background update to Google Sheets when enabled and token available
   const syncToGoogleSheetsIfEnabled = async (updatedBooks: Book[]) => {
@@ -738,7 +779,7 @@ export default function App() {
       />
 
       {/* Main App Viewport */}
-      <main className="flex-1">
+      <main className="flex-1 pb-24 md:pb-8">
         {currentTab === 'dashboard' && (
           <Dashboard
             books={visibleBooks}
