@@ -116,7 +116,8 @@ export function subscribeToCloudBooks(
   onUpdate: (books: Book[]) => void,
   onError?: (error: unknown) => void
 ): () => void {
-  const booksCol = collection(db, 'users', userId, 'books');
+  const safeSyncUser = getSyncUserId(userId);
+  const booksCol = collection(db, 'users', safeSyncUser, 'books');
 
   const unsubscribe = onSnapshot(
     booksCol,
@@ -159,9 +160,10 @@ export function subscribeToCloudBooks(
  * Fetch cloud books once (useful for initialization checks).
  */
 export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
-  const booksPath = `users/${userId}/books`;
+  const safeSyncUser = getSyncUserId(userId);
+  const booksPath = `users/${safeSyncUser}/books`;
   try {
-    const booksCol = collection(db, 'users', userId, 'books');
+    const booksCol = collection(db, 'users', safeSyncUser, 'books');
     const snapshot = await getDocs(booksCol);
     const books: Book[] = [];
     snapshot.forEach((docSnap) => {
@@ -173,7 +175,8 @@ export async function fetchCloudBooksOnce(userId: string): Promise<Book[]> {
     });
     return books;
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, booksPath);
+    console.warn('fetchCloudBooksOnce notice:', error);
+    return [];
   }
 }
 
@@ -190,6 +193,9 @@ export function getSyncUserId(userId?: string | null): string {
       }
     }
   } catch {}
+  if (auth.currentUser?.email) {
+    return auth.currentUser.email.trim().toLowerCase();
+  }
   return 'jaguuuar@gmail.com';
 }
 
@@ -204,31 +210,24 @@ export async function saveBookToCloud(userId: string, book: Book): Promise<strin
     userId: safeSyncUser,
   };
 
-  // 1. Primary Channel: High-Availability Server Sync (Works across PC & Phone with zero domain/popup restrictions)
+  // 1. Primary Channel: Real-time Google Cloud Firestore
   try {
-    const res = await fetch('/api/sync/save', {
+    const bookRef = doc(db, 'users', safeSyncUser, 'books', safeId);
+    const payload = sanitizeBookForFirestore(bookWithMeta, safeSyncUser);
+    await setDoc(bookRef, payload);
+  } catch (firestoreErr) {
+    console.warn('Firestore live save notice:', firestoreErr);
+  }
+
+  // 2. Secondary Channel: Server Sync (backup)
+  try {
+    await fetch('/api/sync/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: safeSyncUser, book: bookWithMeta }),
     });
-    if (!res.ok) {
-      console.warn('Server sync save returned non-OK status:', res.status);
-    }
   } catch (err) {
     console.warn('Server sync save notice (offline or network):', err);
-  }
-
-  // 2. Secondary Channel: Firebase Firestore Cloud Backup (if authenticated)
-  try {
-    const user = await ensureAuthReady();
-    const activeUid = user?.uid || auth.currentUser?.uid;
-    if (activeUid) {
-      const bookRef = doc(db, 'users', activeUid, 'books', safeId);
-      const payload = sanitizeBookForFirestore(bookWithMeta, activeUid);
-      await setDoc(bookRef, payload);
-    }
-  } catch (firestoreErr) {
-    console.info('Firestore background backup notice (handled by server sync):', firestoreErr);
   }
 
   return safeId;
@@ -241,7 +240,15 @@ export async function deleteBookFromCloud(userId: string, bookId: string): Promi
   const safeSyncUser = getSyncUserId(userId);
   const safeId = toSafeBookId(bookId);
 
-  // 1. Primary Channel: Server Sync
+  // 1. Google Cloud Firestore
+  try {
+    const bookRef = doc(db, 'users', safeSyncUser, 'books', safeId);
+    await deleteDoc(bookRef);
+  } catch (firestoreErr) {
+    console.warn('Firestore delete notice:', firestoreErr);
+  }
+
+  // 2. Server Sync
   try {
     await fetch('/api/sync/delete', {
       method: 'POST',
@@ -250,18 +257,6 @@ export async function deleteBookFromCloud(userId: string, bookId: string): Promi
     });
   } catch (err) {
     console.warn('Server sync delete notice:', err);
-  }
-
-  // 2. Secondary Channel: Firebase Firestore
-  try {
-    const user = await ensureAuthReady();
-    const activeUid = user?.uid || auth.currentUser?.uid;
-    if (activeUid) {
-      const bookRef = doc(db, 'users', activeUid, 'books', safeId);
-      await deleteDoc(bookRef);
-    }
-  } catch (firestoreErr) {
-    console.info('Firestore delete notice:', firestoreErr);
   }
 }
 
@@ -277,25 +272,10 @@ export async function syncAllBooksToCloud(userId: string, books: Book[]): Promis
     id: toSafeBookId(b.id),
   }));
 
-  // 1. Primary Channel: Server Sync Full Push
+  // 1. Google Cloud Firestore Full Push
+  const path = `users/${safeSyncUser}/books`;
   try {
-    const res = await fetch('/api/sync/push-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: safeSyncUser, books: safeBooks }),
-    });
-    if (!res.ok) {
-      console.warn('Server sync push-all non-OK status:', res.status);
-    }
-  } catch (err) {
-    console.warn('Server sync push-all notice:', err);
-  }
-
-  // 2. Secondary Channel: Firebase Firestore
-  const path = `users/${userId}/books`;
-  try {
-    // Get existing cloud book IDs to clean up orphaned entries
-    const existingSnap = await getDocs(collection(db, 'users', userId, 'books'));
+    const existingSnap = await getDocs(collection(db, 'users', safeSyncUser, 'books'));
     const newBookIds = new Set(safeBooks.map((b) => b.id));
 
     const deleteRefs: any[] = [];
@@ -307,7 +287,7 @@ export async function syncAllBooksToCloud(userId: string, books: Book[]): Promis
 
     const CHUNK_SIZE = 300;
 
-    // 2. Commit deletions in safe chunks
+    // Delete removed books in safe chunks
     for (let i = 0; i < deleteRefs.length; i += CHUNK_SIZE) {
       const chunk = deleteRefs.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
@@ -317,19 +297,30 @@ export async function syncAllBooksToCloud(userId: string, books: Book[]): Promis
       await batch.commit();
     }
 
-    // 3. Commit writes in safe chunks
+    // Write current books in safe chunks
     for (let i = 0; i < safeBooks.length; i += CHUNK_SIZE) {
       const chunk = safeBooks.slice(i, i + CHUNK_SIZE);
       const batch = writeBatch(db);
       for (const b of chunk) {
-        const bookRef = doc(db, 'users', userId, 'books', b.id);
-        batch.set(bookRef, sanitizeBookForFirestore(b, userId));
+        const bookRef = doc(db, 'users', safeSyncUser, 'books', b.id);
+        batch.set(bookRef, sanitizeBookForFirestore(b, safeSyncUser));
       }
       await batch.commit();
     }
   } catch (error) {
-    console.error('syncAllBooksToCloud error:', error);
+    console.error('Firestore syncAllBooksToCloud error:', error);
     handleFirestoreError(error, OperationType.WRITE, path);
+  }
+
+  // 2. Server Sync Full Push (replicated backup)
+  try {
+    await fetch('/api/sync/push-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, books: safeBooks }),
+    });
+  } catch (err) {
+    console.warn('Server sync push-all notice:', err);
   }
 }
 
@@ -337,17 +328,18 @@ export async function syncAllBooksToCloud(userId: string, books: Book[]): Promis
  * Save a single genre to cloud
  */
 export async function saveGenreToCloud(userId: string, genreName: string): Promise<void> {
+  const safeSyncUser = getSyncUserId(userId);
   const genreId = toSafeGenreId(genreName);
-  const path = `users/${userId}/genres/${genreId}`;
+  const path = `users/${safeSyncUser}/genres/${genreId}`;
   try {
-    const ref = doc(db, 'users', userId, 'genres', genreId);
+    const ref = doc(db, 'users', safeSyncUser, 'genres', genreId);
     await setDoc(ref, {
-      userId,
+      userId: safeSyncUser,
       name: genreName.trim(),
       updatedAt: new Date().toISOString(),
     });
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('saveGenreToCloud notice:', error);
   }
 }
 
@@ -355,13 +347,14 @@ export async function saveGenreToCloud(userId: string, genreName: string): Promi
  * Delete a single genre from cloud
  */
 export async function deleteGenreFromCloud(userId: string, genreName: string): Promise<void> {
+  const safeSyncUser = getSyncUserId(userId);
   const genreId = toSafeGenreId(genreName);
-  const path = `users/${userId}/genres/${genreId}`;
+  const path = `users/${safeSyncUser}/genres/${genreId}`;
   try {
-    const ref = doc(db, 'users', userId, 'genres', genreId);
+    const ref = doc(db, 'users', safeSyncUser, 'genres', genreId);
     await deleteDoc(ref);
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    console.warn('deleteGenreFromCloud notice:', error);
   }
 }
 
@@ -369,9 +362,10 @@ export async function deleteGenreFromCloud(userId: string, genreName: string): P
  * Sync all genres to cloud
  */
 export async function syncAllGenresToCloud(userId: string, genres: string[]): Promise<void> {
-  const path = `users/${userId}/genres`;
+  const safeSyncUser = getSyncUserId(userId);
+  const path = `users/${safeSyncUser}/genres`;
   try {
-    const existingSnap = await getDocs(collection(db, 'users', userId, 'genres'));
+    const existingSnap = await getDocs(collection(db, 'users', safeSyncUser, 'genres'));
     const currentGenreIds = new Set(genres.map((g) => toSafeGenreId(g)));
 
     const batch = writeBatch(db);
@@ -386,9 +380,9 @@ export async function syncAllGenresToCloud(userId: string, genres: string[]): Pr
     // Set active genres
     for (const g of genres) {
       const gid = toSafeGenreId(g);
-      const ref = doc(db, 'users', userId, 'genres', gid);
+      const ref = doc(db, 'users', safeSyncUser, 'genres', gid);
       batch.set(ref, {
-        userId,
+        userId: safeSyncUser,
         name: g.trim(),
         updatedAt: new Date().toISOString(),
       });
@@ -396,7 +390,7 @@ export async function syncAllGenresToCloud(userId: string, genres: string[]): Pr
 
     await batch.commit();
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('syncAllGenresToCloud notice:', error);
   }
 }
 
@@ -407,7 +401,8 @@ export function subscribeToCloudGenres(
   userId: string,
   onUpdate: (genres: string[]) => void
 ): () => void {
-  const genresCol = collection(db, 'users', userId, 'genres');
+  const safeSyncUser = getSyncUserId(userId);
+  const genresCol = collection(db, 'users', safeSyncUser, 'genres');
 
   const unsubscribe = onSnapshot(
     genresCol,
@@ -452,45 +447,9 @@ export async function twoWaySyncBooks(
 ): Promise<TwoWaySyncResult> {
   const safeSyncUser = getSyncUserId(userId);
 
-  // 1. Primary Channel: High-Availability Server Sync
+  // 1. Primary Channel: Google Cloud Firestore Direct Sync
   try {
-    const res = await fetch('/api/sync/merge', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: safeSyncUser, clientBooks: localBooks }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.books)) {
-        // Also replicate to Firestore in background if authenticated
-        ensureAuthReady().then((u) => {
-          if (u?.uid) {
-            syncAllBooksToCloud(u.uid, data.books).catch(() => {});
-          }
-        }).catch(() => {});
-
-        const dl = data.downloadedCount || 0;
-        const ul = data.uploadedCount || 0;
-        return {
-          success: true,
-          books: data.books,
-          downloadedCount: dl,
-          uploadedCount: ul,
-          message: dl > 0 || ul > 0
-            ? `Синхронизация завершена: обновлено ${dl} книг, отправлено ${ul} изменений.`
-            : 'Все книги актуальны и синхронизированы между ПК и телефоном!',
-        };
-      }
-    }
-  } catch (err) {
-    console.warn('Server sync merge notice:', err);
-  }
-
-  // 2. Secondary Channel: Direct Firestore Sync (if server unreachable)
-  const user = await ensureAuthReady();
-  const activeUid = user?.uid || auth.currentUser?.uid;
-  if (activeUid) {
-    const cloudBooks = await fetchCloudBooksOnce(activeUid);
+    const cloudBooks = await fetchCloudBooksOnce(safeSyncUser);
     const cloudMap = new Map<string, Book>();
     for (const cb of cloudBooks) {
       const id = cb.id || toSafeBookId(cb.id);
@@ -537,7 +496,7 @@ export async function twoWaySyncBooks(
 
     if (booksToUpload.length > 0) {
       for (const b of booksToUpload) {
-        await saveBookToCloud(activeUid, b);
+        await saveBookToCloud(safeSyncUser, b);
       }
     }
 
@@ -547,13 +506,51 @@ export async function twoWaySyncBooks(
       return timeB - timeA;
     });
 
+    // Replicate to server cache for background persistence
+    fetch('/api/sync/push-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, books: mergedBooks }),
+    }).catch(() => {});
+
     return {
       success: true,
       books: mergedBooks,
       downloadedCount,
       uploadedCount,
-      message: `Синхронизация через Firestore: обновлено ${downloadedCount} книг.`,
+      message: downloadedCount > 0 || uploadedCount > 0
+        ? `Синхронизация через Google Cloud: обновлено ${downloadedCount} книг, отправлено ${uploadedCount}.`
+        : 'Все книги актуальны и синхронизированы между ПК и телефоном!',
     };
+  } catch (firestoreErr) {
+    console.warn('Firestore twoWaySync error, falling back to server merge:', firestoreErr);
+  }
+
+  // 2. Secondary Channel: Server Sync (replicated container backup)
+  try {
+    const res = await fetch('/api/sync/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: safeSyncUser, clientBooks: localBooks }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.books)) {
+        const dl = data.downloadedCount || 0;
+        const ul = data.uploadedCount || 0;
+        return {
+          success: true,
+          books: data.books,
+          downloadedCount: dl,
+          uploadedCount: ul,
+          message: dl > 0 || ul > 0
+            ? `Синхронизация завершена: обновлено ${dl} книг, отправлено ${ul} изменений.`
+            : 'Все книги актуальны и синхронизированы!',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('Server sync merge notice:', err);
   }
 
   return {
@@ -571,24 +568,9 @@ export async function twoWaySyncBooks(
 export async function pullAllBooksFromCloud(userId: string): Promise<Book[]> {
   const safeSyncUser = getSyncUserId(userId);
 
-  // 1. Primary: Server Sync Engine
+  // 1. Primary: Direct Google Cloud Firestore
   try {
-    const res = await fetch(`/api/sync/get?userId=${encodeURIComponent(safeSyncUser)}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.success && Array.isArray(data.books) && data.books.length > 0) {
-        return data.books;
-      }
-    }
-  } catch (err) {
-    console.warn('Server sync pull notice:', err);
-  }
-
-  // 2. Secondary: Firestore
-  try {
-    const user = await ensureAuthReady();
-    const activeUid = user?.uid || auth.currentUser?.uid || userId;
-    const cloudBooks = await fetchCloudBooksOnce(activeUid);
+    const cloudBooks = await fetchCloudBooksOnce(safeSyncUser);
     if (cloudBooks && cloudBooks.length > 0) {
       cloudBooks.sort((a, b) => {
         const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
@@ -599,6 +581,19 @@ export async function pullAllBooksFromCloud(userId: string): Promise<Book[]> {
     }
   } catch (err) {
     console.warn('Firestore pull notice:', err);
+  }
+
+  // 2. Secondary: Server Sync Engine
+  try {
+    const res = await fetch(`/api/sync/get?userId=${encodeURIComponent(safeSyncUser)}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.books) && data.books.length > 0) {
+        return data.books;
+      }
+    }
+  } catch (err) {
+    console.warn('Server sync pull notice:', err);
   }
 
   return [];

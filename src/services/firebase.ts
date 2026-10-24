@@ -73,6 +73,13 @@ export interface SavedUserSession {
 
 export const DEFAULT_USER_EMAIL = 'jaguuuar@gmail.com';
 
+export const DEFAULT_APP_USER: SavedUserSession = {
+  uid: 'jaguuuar@gmail.com',
+  displayName: 'jaguuuar',
+  email: 'jaguuuar@gmail.com',
+  photoURL: null,
+};
+
 export const getSavedUserSession = (): SavedUserSession | null => {
   if (typeof window === 'undefined') return null;
   if (isExplicitlySignedOut()) return null;
@@ -87,7 +94,7 @@ export const getSavedUserSession = (): SavedUserSession | null => {
   } catch {
     // Ignore storage parse error
   }
-  return null;
+  return DEFAULT_APP_USER;
 };
 
 export const isExplicitlySignedOut = (): boolean => {

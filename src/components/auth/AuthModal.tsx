@@ -34,6 +34,7 @@ interface AuthModalProps {
   books: Book[];
   onSignOut?: () => void;
   onSyncComplete?: (updatedBooks: Book[]) => void;
+  onUserChange?: (user: any) => void;
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({
@@ -43,6 +44,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   books,
   onSignOut,
   onSyncComplete,
+  onUserChange,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -76,6 +78,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
       if (result.user) {
         saveUserSession(result.user);
+        onUserChange?.(result.user);
         // Automatically sync with server
         pullAllBooksFromCloud(result.user.uid).then((b) => {
           if (b && b.length > 0 && onSyncComplete) onSyncComplete(b);
@@ -114,6 +117,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         photoURL: null,
       };
       saveUserSession(userSession);
+      onUserChange?.(userSession);
       const remoteBooks = await pullAllBooksFromCloud(raw);
       if (onSyncComplete && remoteBooks && remoteBooks.length > 0) {
         onSyncComplete(remoteBooks);
@@ -134,6 +138,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     try {
       saveUserSession(null);
       clearAccessToken();
+      onUserChange?.(null);
       onSignOut?.();
       await signOut(auth);
       onClose();
@@ -143,12 +148,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleTwoWaySync = async () => {
-    if (!currentUser) return;
     setIsLoading(true);
     setErrorMessage('');
     setSyncSuccessMessage('');
     try {
-      const result = await twoWaySyncBooks(currentUser.uid, books);
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      const result = await twoWaySyncBooks(syncTarget, books);
       if (onSyncComplete && result.books) {
         onSyncComplete(result.books);
       }
@@ -162,12 +167,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleForcePull = async () => {
-    if (!currentUser) return;
     setIsLoading(true);
     setErrorMessage('');
     setSyncSuccessMessage('');
     try {
-      const cloudBooks = await pullAllBooksFromCloud(currentUser.uid);
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      const cloudBooks = await pullAllBooksFromCloud(syncTarget);
       if (!cloudBooks || cloudBooks.length === 0) {
         setErrorMessage('В облаке пока нет сохранённых книг для этого аккаунта.');
         return;
@@ -185,7 +190,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   const handleForcePush = async () => {
-    if (!currentUser) return;
     setIsLoading(true);
     setErrorMessage('');
     setSyncSuccessMessage('');
@@ -194,7 +198,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         setErrorMessage('В библиотеке сейчас нет книг для отправки.');
         return;
       }
-      await uploadLocalBooksBatch(currentUser.uid, books);
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await uploadLocalBooksBatch(syncTarget, books);
       setSyncSuccessMessage(`Все ${books.length} книг успешно загружены в облако как основная копия.`);
     } catch (err: any) {
       console.error('Manual upload error:', err);

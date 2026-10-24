@@ -148,6 +148,125 @@ export default function App() {
     let unsubBooks: (() => void) | null = null;
     let unsubGenres: (() => void) | null = null;
 
+    const startListeners = (syncId: string) => {
+      if (unsubBooks) {
+        unsubBooks();
+        unsubBooks = null;
+      }
+      if (unsubGenres) {
+        unsubGenres();
+        unsubGenres = null;
+      }
+
+      setIsSyncing(true);
+
+      // A. Bidirectional real-time listener for user's private books
+      unsubBooks = subscribeToCloudBooks(
+        syncId, 
+        async (cloudBooks) => {
+          setIsSyncing(false);
+          setLastSyncedAt(new Date());
+
+          if (cloudBooks && cloudBooks.length > 0) {
+            // Reconcile with local books
+            const localBooks = await storageService.getBooks();
+            const deletedIds = storageService.getDeletedBookIds();
+            const cloudMap = new Map<string, Book>();
+            for (const cb of cloudBooks) {
+              cloudMap.set(cb.id, cb);
+            }
+
+            const newerLocalsToUpload: Book[] = [];
+            const finalMerged: Book[] = [];
+
+            for (const lb of localBooks) {
+              if (deletedIds.has(lb.id)) continue;
+
+              const cb = cloudMap.get(lb.id);
+              if (cb) {
+                const localTime = new Date(lb.updatedAt || lb.createdAt || 0).getTime();
+                const cloudTime = new Date(cb.updatedAt || cb.createdAt || 0).getTime();
+                if (localTime > cloudTime) {
+                  newerLocalsToUpload.push(lb);
+                  finalMerged.push(lb);
+                } else {
+                  finalMerged.push(cb);
+                }
+                cloudMap.delete(lb.id);
+              } else if (!isStockDemoBooks(localBooks)) {
+                // Book created locally on this device offline: keep it and schedule upload
+                newerLocalsToUpload.push(lb);
+                finalMerged.push(lb);
+              }
+            }
+
+            // Add remaining cloud books (e.g. edits/adds from mobile)
+            for (const cb of cloudMap.values()) {
+              if (!deletedIds.has(cb.id)) {
+                finalMerged.push(cb);
+              }
+            }
+
+            finalMerged.sort((a, b) => {
+              const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
+              const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
+              return timeB - timeA;
+            });
+
+            setBooks(finalMerged);
+            await storageService.setAllBooks(finalMerged);
+            storageService.setSeeded(true);
+
+            // Automatically propagate any newer local edits to cloud
+            if (newerLocalsToUpload.length > 0) {
+              for (const b of newerLocalsToUpload) {
+                saveBookToCloud(syncId, b).catch(console.warn);
+              }
+            }
+
+            // Keep selectedBook detail modal live and updated
+            setSelectedBook((prev) => {
+              if (!prev) return null;
+              return finalMerged.find((b) => b.id === prev.id) || null;
+            });
+          } else {
+            // Cloud has 0 books: check if user already has local books to prevent accidental wipe!
+            const localBooks = await storageService.getBooks();
+            if (localBooks && localBooks.length > 0 && !isStockDemoBooks(localBooks)) {
+              // Preserve local books and automatically backup to Cloud!
+              try {
+                await uploadLocalBooksBatch(syncId, localBooks);
+              } catch (e) {
+                console.warn('Auto backup local books to cloud error:', e);
+              }
+            } else {
+              setBooks([]);
+              await storageService.setAllBooks([]);
+              storageService.setSeeded(true);
+            }
+          }
+        },
+        (error) => {
+          console.warn('Cloud books subscription notification:', error);
+          setIsSyncing(false);
+        }
+      );
+
+      // B. Bidirectional real-time listener for custom genres
+      unsubGenres = subscribeToCloudGenres(syncId, async (cloudGenres) => {
+        if (cloudGenres && cloudGenres.length > 0) {
+          setGenres(cloudGenres);
+          await storageService.saveGenres(cloudGenres);
+        }
+      });
+    };
+
+    // If already have session, start immediately
+    const initialSyncId = auth.currentUser?.uid || cachedSessionRef.current?.uid || (!isExplicitlySignedOut() ? 'jaguuuar@gmail.com' : null);
+    if (initialSyncId) {
+      startListeners(initialSyncId);
+    }
+
     const unsubAuth = onAuthStateChanged(auth, async (user) => {
       setIsAuthReady(true);
 
@@ -161,156 +280,32 @@ export default function App() {
           email: user.email || null,
           photoURL: user.photoURL || null,
         };
-
-        // Scope local cache to this user
         storageService.setUserId(user.uid);
-
-        // Fast initial paint from this user's private local cache
-        try {
-          const userCached = await storageService.getBooks();
-          if (userCached && userCached.length > 0) {
-            setBooks(userCached);
-          }
-        } catch {}
-
-        setIsSyncing(true);
-
-        // A. Bidirectional real-time listener for user's private books
-        unsubBooks = subscribeToCloudBooks(
-          user.uid, 
-          async (cloudBooks) => {
-            setIsSyncing(false);
-            setLastSyncedAt(new Date());
-
-            if (cloudBooks && cloudBooks.length > 0) {
-              // 1. Reconcile with local books
-              const localBooks = await storageService.getBooks();
-              const deletedIds = storageService.getDeletedBookIds();
-              const cloudMap = new Map<string, Book>();
-              for (const cb of cloudBooks) {
-                cloudMap.set(cb.id, cb);
-              }
-
-              const newerLocalsToUpload: Book[] = [];
-              const finalMerged: Book[] = [];
-
-              for (const lb of localBooks) {
-                if (deletedIds.has(lb.id)) continue;
-
-                const cb = cloudMap.get(lb.id);
-                if (cb) {
-                  const localTime = new Date(lb.updatedAt || lb.createdAt || 0).getTime();
-                  const cloudTime = new Date(cb.updatedAt || cb.createdAt || 0).getTime();
-                  if (localTime > cloudTime) {
-                    newerLocalsToUpload.push(lb);
-                    finalMerged.push(lb);
-                  } else {
-                    finalMerged.push(cb);
-                  }
-                  cloudMap.delete(lb.id);
-                } else if (!isStockDemoBooks(localBooks)) {
-                  // Book created locally on this device offline: keep it and schedule upload
-                  newerLocalsToUpload.push(lb);
-                  finalMerged.push(lb);
-                }
-              }
-
-              // Add remaining cloud books (e.g. edits/adds from mobile)
-              for (const cb of cloudMap.values()) {
-                if (!deletedIds.has(cb.id)) {
-                  finalMerged.push(cb);
-                }
-              }
-
-              finalMerged.sort((a, b) => {
-                const timeA = new Date(a.updatedAt || a.createdAt || 0).getTime();
-                const timeB = new Date(b.updatedAt || b.createdAt || 0).getTime();
-                return timeB - timeA;
-              });
-
-              setBooks(finalMerged);
-              await storageService.setAllBooks(finalMerged);
-              storageService.setSeeded(true);
-
-              // Automatically propagate any newer local edits to cloud
-              if (newerLocalsToUpload.length > 0) {
-                for (const b of newerLocalsToUpload) {
-                  saveBookToCloud(user.uid, b).catch(console.warn);
-                }
-              }
-
-              // Keep selectedBook detail modal live and updated
-              setSelectedBook((prev) => {
-                if (!prev) return null;
-                return finalMerged.find((b) => b.id === prev.id) || null;
-              });
-            } else {
-              // Cloud has 0 books: check if user already has local books to prevent accidental wipe!
-              const localBooks = await storageService.getBooks();
-              if (localBooks && localBooks.length > 0 && !isStockDemoBooks(localBooks)) {
-                // Preserve local books and automatically backup to Cloud!
-                try {
-                  await uploadLocalBooksBatch(user.uid, localBooks);
-                } catch (e) {
-                  console.warn('Auto backup local books to cloud error:', e);
-                }
-              } else {
-                setBooks([]);
-                await storageService.setAllBooks([]);
-                storageService.setSeeded(true);
-              }
-            }
-          },
-          (error) => {
-            console.warn('Cloud books subscription notification:', error);
-            setIsSyncing(false);
-          }
-        );
-
-        // B. Bidirectional real-time listener for custom genres
-        unsubGenres = subscribeToCloudGenres(user.uid, async (cloudGenres) => {
-          if (cloudGenres && cloudGenres.length > 0) {
-            setGenres(cloudGenres);
-            await storageService.saveGenres(cloudGenres);
-          }
-        });
-
+        startListeners(user.uid);
       } else {
-        // Firebase reported null user
-        if (unsubBooks) {
-          unsubBooks();
-          unsubBooks = null;
-        }
-        if (unsubGenres) {
-          unsubGenres();
-          unsubGenres = null;
-        }
-
-        if (explicitlySignedOutRef.current || isExplicitlySignedOut() || !getSavedUserSession()) {
+        if (explicitlySignedOutRef.current || isExplicitlySignedOut()) {
+          if (unsubBooks) {
+            unsubBooks();
+            unsubBooks = null;
+          }
+          if (unsubGenres) {
+            unsubGenres();
+            unsubGenres = null;
+          }
           saveUserSession(null);
           cachedSessionRef.current = null;
           storageService.setUserId(null);
-          const local = await storageService.getBooks();
-          if (local && local.length > 0) {
-            setBooks(local);
-          }
+          setBooks([]);
           setSelectedBook(null);
           setCurrentUser(null);
           setIsSyncing(false);
           setLastSyncedAt(null);
         } else {
-          // Returning user: NEVER kick out! Restore from persistent session
           const saved = getSavedUserSession();
           if (saved) {
             setCurrentUser(saved as unknown as User);
             storageService.setUserId(saved.uid);
-            // Attempt background token refresh
-            ensureAuthReady().then((restored) => {
-              if (restored) {
-                setCurrentUser(restored);
-                saveUserSession(restored);
-              }
-            });
+            startListeners(saved.uid);
           }
         }
       }
@@ -380,7 +375,7 @@ export default function App() {
 
   // Guard helper to prevent unauthenticated/unsynchronized data modifications
   const ensureAuthenticated = (): boolean => {
-    if (!currentUser) {
+    if (!currentUser && isExplicitlySignedOut()) {
       setIsAuthModalOpen(true);
       return false;
     }
@@ -389,13 +384,10 @@ export default function App() {
 
   // Trigger full two-way sync manually (from header button or auth modal)
   const handleTriggerSync = async () => {
-    if (!currentUser) {
-      setIsAuthModalOpen(true);
-      return;
-    }
     setIsSyncing(true);
     try {
-      const result = await twoWaySyncBooks(currentUser.uid, books);
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      const result = await twoWaySyncBooks(syncTarget, books);
       if (result.books && result.books.length > 0) {
         setBooks(result.books);
         await storageService.setAllBooks(result.books);
@@ -447,18 +439,17 @@ export default function App() {
       });
 
       // 2. Propagate to Cloud -> updates all other connected devices (Phone/PC)
-      if (currentUser) {
-        setIsSyncing(true);
-        try {
-          await saveBookToCloud(currentUser.uid, book);
-          setLastSyncedAt(new Date());
-        } catch (cloudErr: any) {
-          console.warn('Cloud save notification:', cloudErr);
-          setSyncToastMessage('Книга сохранена на этом устройстве. Проверьте подключение к Google для облачной синхронизации.');
-          setTimeout(() => setSyncToastMessage(null), 5000);
-        } finally {
-          setIsSyncing(false);
-        }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      setIsSyncing(true);
+      try {
+        await saveBookToCloud(syncTarget, book);
+        setLastSyncedAt(new Date());
+      } catch (cloudErr: any) {
+        console.warn('Cloud save notification:', cloudErr);
+        setSyncToastMessage('Книга сохранена на этом устройстве. Проверьте подключение к Google для облачной синхронизации.');
+        setTimeout(() => setSyncToastMessage(null), 5000);
+      } finally {
+        setIsSyncing(false);
       }
 
       // 3. Register any new genres discovered
@@ -467,10 +458,8 @@ export default function App() {
         const updatedGenres = [...genres, ...newGenresFound];
         setGenres(updatedGenres);
         await storageService.saveGenres(updatedGenres);
-        if (currentUser) {
-          for (const ng of newGenresFound) {
-            await saveGenreToCloud(currentUser.uid, ng);
-          }
+        for (const ng of newGenresFound) {
+          await saveGenreToCloud(syncTarget, ng);
         }
       }
 
@@ -495,12 +484,11 @@ export default function App() {
         setSelectedBook(null);
       }
 
-      if (currentUser) {
-        setIsSyncing(true);
-        await deleteBookFromCloud(currentUser.uid, id);
-        setIsSyncing(false);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      setIsSyncing(true);
+      await deleteBookFromCloud(syncTarget, id);
+      setIsSyncing(false);
+      setLastSyncedAt(new Date());
 
       // Auto-sync to Google Sheets
       syncToGoogleSheetsIfEnabled(nextList);
@@ -554,10 +542,9 @@ export default function App() {
       setBooks(updated);
       await storageService.setAllBooks(updated);
 
-      if (currentUser) {
-        await syncAllBooksToCloud(currentUser.uid, updated);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await syncAllBooksToCloud(syncTarget, updated);
+      setLastSyncedAt(new Date());
     } catch (err) {
       console.error('Failed to merge authors:', err);
     } finally {
@@ -574,12 +561,11 @@ export default function App() {
       const next = [...genres, trimmed];
       setGenres(next);
       await storageService.saveGenres(next);
-      if (currentUser) {
-        try {
-          await saveGenreToCloud(currentUser.uid, trimmed);
-        } catch (err) {
-          console.warn('Failed to save genre to cloud:', err);
-        }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      try {
+        await saveGenreToCloud(syncTarget, trimmed);
+      } catch (err) {
+        console.warn('Failed to save genre to cloud:', err);
       }
     }
   };
@@ -605,12 +591,11 @@ export default function App() {
       setBooks(updatedBooks);
       await storageService.setAllBooks(updatedBooks);
 
-      if (currentUser) {
-        await deleteGenreFromCloud(currentUser.uid, oldName);
-        await saveGenreToCloud(currentUser.uid, newName);
-        await syncAllBooksToCloud(currentUser.uid, updatedBooks);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await deleteGenreFromCloud(syncTarget, oldName);
+      await saveGenreToCloud(syncTarget, newName);
+      await syncAllBooksToCloud(syncTarget, updatedBooks);
+      setLastSyncedAt(new Date());
     } catch (err) {
       console.error('Failed to edit genre:', err);
     } finally {
@@ -639,11 +624,10 @@ export default function App() {
       setBooks(updatedBooks);
       await storageService.setAllBooks(updatedBooks);
 
-      if (currentUser) {
-        await deleteGenreFromCloud(currentUser.uid, genreName);
-        await syncAllBooksToCloud(currentUser.uid, updatedBooks);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await deleteGenreFromCloud(syncTarget, genreName);
+      await syncAllBooksToCloud(syncTarget, updatedBooks);
+      setLastSyncedAt(new Date());
     } catch (err) {
       console.error('Failed to delete genre:', err);
     } finally {
@@ -686,13 +670,12 @@ export default function App() {
         const mergedGenres = [...genres, ...newGenresFound];
         setGenres(mergedGenres);
         await storageService.saveGenres(mergedGenres);
-        if (currentUser) {
-          for (const ng of newGenresFound) {
-            try {
-              await saveGenreToCloud(currentUser.uid, ng);
-            } catch (err) {
-              console.warn('Could not save genre during import:', err);
-            }
+        const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+        for (const ng of newGenresFound) {
+          try {
+            await saveGenreToCloud(syncTarget, ng);
+          } catch (err) {
+            console.warn('Could not save genre during import:', err);
           }
         }
       }
@@ -701,10 +684,9 @@ export default function App() {
       await storageService.setAllBooks(finalBooks);
       storageService.setSeeded(true);
 
-      if (currentUser) {
-        await syncAllBooksToCloud(currentUser.uid, finalBooks);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await syncAllBooksToCloud(syncTarget, finalBooks);
+      setLastSyncedAt(new Date());
       syncToGoogleSheetsIfEnabled(finalBooks);
     } catch (err) {
       console.error('Failed to import books:', err);
@@ -720,10 +702,9 @@ export default function App() {
       setBooks(INITIAL_DEMO_BOOKS);
       await storageService.setAllBooks(INITIAL_DEMO_BOOKS);
       storageService.setSeeded(true);
-      if (currentUser) {
-        await syncAllBooksToCloud(currentUser.uid, INITIAL_DEMO_BOOKS);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await syncAllBooksToCloud(syncTarget, INITIAL_DEMO_BOOKS);
+      setLastSyncedAt(new Date());
       syncToGoogleSheetsIfEnabled(INITIAL_DEMO_BOOKS);
     } catch (err) {
       console.error('Failed to reset to demo:', err);
@@ -739,10 +720,9 @@ export default function App() {
       setBooks([]);
       await storageService.setAllBooks([]);
       storageService.setSeeded(true);
-      if (currentUser) {
-        await syncAllBooksToCloud(currentUser.uid, []);
-        setLastSyncedAt(new Date());
-      }
+      const syncTarget = currentUser?.email || currentUser?.uid || 'jaguuuar@gmail.com';
+      await syncAllBooksToCloud(syncTarget, []);
+      setLastSyncedAt(new Date());
     } catch (err) {
       console.error('Failed to clear library:', err);
     } finally {
@@ -761,6 +741,24 @@ export default function App() {
     setCurrentUser(null);
     setIsSyncing(false);
     setLastSyncedAt(null);
+  };
+
+  const handleUserChange = (user: User | SavedUserSession | null) => {
+    if (user) {
+      explicitlySignedOutRef.current = false;
+      setExplicitlySignedOut(false);
+      setCurrentUser(user as unknown as User);
+      cachedSessionRef.current = {
+        uid: user.uid,
+        displayName: user.displayName || null,
+        email: user.email || null,
+        photoURL: user.photoURL || null,
+      };
+      saveUserSession(user);
+      storageService.setUserId(user.uid);
+    } else {
+      handleExplicitSignOut();
+    }
   };
 
   // Absolute privacy boundary: unauthenticated readers cannot see another user's books
@@ -974,6 +972,7 @@ export default function App() {
         books={visibleBooks}
         onSignOut={handleExplicitSignOut}
         onSyncComplete={handleSyncComplete}
+        onUserChange={handleUserChange}
       />
 
       {/* Real-time Sync Toast Notification */}
